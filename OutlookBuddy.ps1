@@ -1007,7 +1007,7 @@ function Perform-ActionOnMultipleEmails {
                         Remove-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -ErrorAction Stop
                         Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                     } catch {
-                        Write-Warning "Fout bij verwijderen e-mail ID $effectiveMessageId: $($_.Exception.Message)"
+                        Write-Warning "Fout bij verwijderen e-mail ID $effectiveMessageId $($_.Exception.Message)"
                         $errorCount++
                     }
                 }
@@ -1046,7 +1046,7 @@ function Perform-ActionOnMultipleEmails {
                             Move-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -DestinationId $destinationFolderId -ErrorAction Stop
                             Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                         } catch {
-                            Write-Warning "Fout bij verplaatsen e-mail ID $effectiveMessageId: $($_.Exception.Message)"
+                            Write-Warning "Fout bij verplaatsen e-mail ID $effectiveMessageId $($_.Exception.Message)"
                             $errorCount++
                         }
                     }
@@ -1274,7 +1274,7 @@ function Perform-ActionOnSingleEmail {
                     # Update cache
                     Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                 } catch {
-                        Write-Error "Fout bij het verwijderen van e-mail ID $effectiveMessageId: $($_.Exception.Message)"
+                        Write-Error "Fout bij het verwijderen van e-mail ID $effectiveMessageId $($_.Exception.Message)"
                     }
                 } else { Write-Host "Verwijderen geannuleerd." }
                 # Read-Host "Druk op Enter om door te gaan." # Verwijderd
@@ -1290,7 +1290,7 @@ function Perform-ActionOnSingleEmail {
                         # Update cache
                             Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                         } catch {
-                            Write-Error "Fout bij het verplaatsen van e-mail ID $effectiveMessageId: $($_.Exception.Message)"
+                            Write-Error "Fout bij het verplaatsen van e-mail ID $effectiveMessageId $($_.Exception.Message)"
                         }
                     } else { Write-Host "Verplaatsen geannuleerd." }
                 } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
