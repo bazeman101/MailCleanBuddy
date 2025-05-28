@@ -359,8 +359,50 @@ function Get-MailFolderSelection {
 
 function Search-Mail {
     param($UserId)
-    Write-Host "Menu Item 3: Zoek naar een mail in $UserId (Nog niet geïmplementeerd)"
-    # TODO: Implement mail search logic
+    Clear-Host
+    Write-Host "Zoek naar e-mails in mailbox: $UserId"
+    Write-Host "---------------------------------------"
+    
+    $searchTerm = Read-Host "Voer zoekterm in (zoekt in onderwerp, body, afzender)"
+    if ([string]::IsNullOrWhiteSpace($searchTerm)) {
+        Write-Warning "Geen zoekterm ingevoerd. Zoekactie geannuleerd."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
+
+    try {
+        Write-Host "Zoeken naar e-mails met term: '$searchTerm'..."
+        # De -Search parameter gebruikt de Microsoft Search KQL syntax.
+        # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
+        # We selecteren specifieke properties voor een snellere en relevantere output.
+        $foundMessages = Get-MgUserMessage -UserId $UserId -Search $searchTerm -Top 100 -Property "subject,from,receivedDateTime,hasAttachments" -ErrorAction Stop
+        
+        if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
+            Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
+        } else {
+            Write-Host "$($foundMessages.Count) e-mail(s) gevonden:"
+            Write-Host "----------------------------------------------------------------------------------------------------"
+            $foundMessages | ForEach-Object {
+                $fromAddress = if ($_.From -and $_.From.EmailAddress) { $_.From.EmailAddress.Address } else { "N/B" }
+                $subject = if ($_.Subject) { $_.Subject } else { "(Geen onderwerp)" }
+                $received = if ($_.ReceivedDateTime) { Get-Date $_.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
+                $attachments = if ($_.HasAttachments) { "Ja" } else { "Nee" }
+
+                Write-Host ("Onderwerp    : {0}" -f $subject)
+                Write-Host ("Van          : {0}" -f $fromAddress)
+                Write-Host ("Ontvangen op : {0}" -f $received)
+                Write-Host ("Bijlagen     : {0}" -f $attachments)
+                Write-Host "ID           : $($_.Id)"
+                Write-Host "----------------------------------------------------------------------------------------------------"
+            }
+        }
+    } catch {
+        Write-Error "Fout tijdens het zoeken naar e-mails: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
+    
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
