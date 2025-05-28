@@ -1,20 +1,15 @@
 <#
 .SYNOPSIS
-    Downloads DMARC reports from a specified mailbox in Microsoft 365.
+    Provides interactive menu-driven mailbox management for Microsoft 365.
 .DESCRIPTION
-    This script connects to Microsoft 365 using interactive login,
-    searches for emails containing DMARC reports in the specified mailbox,
-    and downloads the report attachments to a local folder.
+    This script connects to Microsoft 365 using interactive login and
+    offers a menu to perform various mailbox operations like indexing,
+    managing emails by sender, and searching emails.
 .PARAMETER MailboxEmail
-    The email address of the mailbox to search for DMARC reports.
-.PARAMETER ReportsPath
-    The local path where the DMARC reports should be saved. Defaults to "_reports" in the script's directory.
+    The email address of the mailbox to manage.
 .EXAMPLE
-    .\Get-DmarcReportsFromM365.ps1 -MailboxEmail "dmarc-reports@example.com"
-    This command will connect to the "dmarc-reports@example.com" mailbox and save reports to ".\_reports".
-.EXAMPLE
-    .\Get-DmarcReportsFromM365.ps1 -MailboxEmail "dmarc-reports@example.com" -ReportsPath "C:\DMARC_Reports"
-    This command will connect to the "dmarc-reports@example.com" mailbox and save reports to "C:\DMARC_Reports".
+    .\OutlookBuddy.ps1 -MailboxEmail "user@example.com"
+    This command will connect to "user@example.com" and display the main menu.
 .NOTES
     Requires the Microsoft.Graph.Authentication and Microsoft.Graph.Mail modules.
     The script will attempt to install them if not found.
@@ -24,11 +19,67 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)]
-    [string]$MailboxEmail,
-
-    [Parameter(Mandatory = $false)]
-    [string]$ReportsPath = "_reports"
+    [string]$MailboxEmail
 )
+
+# Placeholder functions for menu items
+function Index-Mailbox {
+    param($UserId)
+    Write-Host "Menu Item 1: Indexeer mailbox voor $UserId (Nog niet geïmplementeerd)"
+    # TODO: Implement mailbox indexing logic
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
+function Show-SenderOverview {
+    param($UserId)
+    Write-Host "Menu Item 2: Overzicht van verzenders voor $UserId (Nog niet geïmplementeerd)"
+    # TODO: Implement sender overview logic
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
+function Manage-EmailsBySender {
+    param($UserId)
+    Write-Host "Menu Item 2.1-2.3: Beheer mails van specifieke afzender voor $UserId (Nog niet geïmplementeerd)"
+    # TODO: Implement selection, deletion, and moving logic
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
+function Search-Mail {
+    param($UserId)
+    Write-Host "Menu Item 3: Zoek naar een mail in $UserId (Nog niet geïmplementeerd)"
+    # TODO: Implement mail search logic
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
+function Show-MainMenu {
+    param (
+        [string]$UserEmail
+    )
+    Clear-Host
+    Write-Host "OutlookBuddy - Hoofdmenu voor $UserEmail"
+    Write-Host "------------------------------------------"
+    Write-Host "1. Indexeer mailbox"
+    Write-Host "2. Overzicht van verzenders"
+    Write-Host "3. Beheer mails van specifieke afzender"
+    Write-Host "4. Zoek naar een mail"
+    Write-Host "Q. Afsluiten"
+    Write-Host "------------------------------------------"
+
+    $choice = Read-Host "Kies een optie"
+
+    switch ($choice) {
+        "1" { Index-Mailbox -UserId $UserEmail }
+        "2" { Show-SenderOverview -UserId $UserEmail }
+        "3" { Manage-EmailsBySender -UserId $UserEmail }
+        "4" { Search-Mail -UserId $UserEmail }
+        "Q" { Write-Host "Afsluiten..."; return $false } # Signal to exit loop
+        default {
+            Write-Warning "Ongeldige keuze. Probeer opnieuw."
+            Read-Host "Druk op Enter om door te gaan"
+        }
+    }
+    return $true # Signal to continue loop
+}
 
 try {
     # Define required Graph API scopes
@@ -101,119 +152,16 @@ try {
     catch {
         throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
     }
-
-    # Resolve and create the reports path if it doesn't exist
-    $ResolvedReportsPath = Join-Path -Path $PSScriptRoot -ChildPath $ReportsPath
-    if (-not (Test-Path -Path $ResolvedReportsPath)) {
-        Write-Host "Creating report directory: $ResolvedReportsPath"
-        New-Item -ItemType Directory -Path $ResolvedReportsPath -Force | Out-Null
-    } else {
-        Write-Host "Report directory already exists: $ResolvedReportsPath"
-    }
-
-    # Search for emails with DMARC reports.
-    # DMARC reports often have subjects like "Report Domain: <domain> Submitter: <submitter>"
-    # and attachments are typically .xml, .gz, or .zip files.
-    # We'll search for subjects containing "Report Domain:" as a common indicator.
-    # Adjust the search query as needed for your specific report format.
-    # Using Microsoft Graph $filter syntax.
-    $filterQuery = "contains(subject, 'Report Domain:')"
-    Write-Host "Attempting to access Inbox for mailbox '$MailboxEmail'..."
-    try {
-        # Get the Inbox folder specifically. "inbox" is a well-known folder name.
-        $inboxFolder = Get-MgUserMailFolder -UserId $MailboxEmail -MailFolderId "inbox" -ErrorAction Stop
-        Write-Host "Successfully accessed Inbox for mailbox '$MailboxEmail' (Folder ID: $($inboxFolder.Id))."
-    }
-    catch {
-        throw "Kritiek: Kon de Inbox folder niet benaderen voor mailbox '$MailboxEmail'. Controleer de mailboxnaam en rechten. Foutdetails: $($_.Exception.Message)"
-    }
     
-    Write-Host "Searching for DMARC report emails in Inbox of '$MailboxEmail' with filter: $filterQuery"
-    # Using Get-MgUserMailFolderMessage to find messages in the specific folder (Inbox).
-    # The -All parameter handles pagination to retrieve all matching messages.
-    $messages = Get-MgUserMailFolderMessage -UserId $MailboxEmail -MailFolderId $inboxFolder.Id -Filter $filterQuery -All -ErrorAction Stop
-
-    if ($messages.Count -eq 0) {
-        Write-Host "No DMARC report emails found matching the criteria."
-    } else {
-        Write-Host "$($messages.Count) DMARC report email(s) found."
-
-        foreach ($message in $messages) {
-            Write-Host "Processing email: $($message.Subject) (Received: $($message.ReceivedDateTime))"
-            
-            # Get attachments for the current message using Microsoft Graph
-            # We need to ensure attachments are actually present before trying to get them.
-            if ($message.HasAttachments) {
-                # Remove -ErrorAction SilentlyContinue to see if there are errors fetching attachments
-                $attachments = Get-MgUserMessageAttachment -UserId $MailboxEmail -MessageId $message.Id -ErrorAction Stop 
-                
-                if ($attachments.Count -gt 0) {
-                    foreach ($attachment in $attachments) {
-                        Write-Host "DEBUG: Found attachment - Name: $($attachment.Name), ODataType: $($attachment.OdataType), Size: $($attachment.Size), ContentId: $($attachment.ContentId)"
-                        # Filter for common DMARC report file types.
-                        # We rely on the filename and the subsequent check for ContentBytes.
-                        if ($attachment.Name -like "*.xml" -or $attachment.Name -like "*.xml.gz" -or $attachment.Name -like "*.zip" -or $attachment.Name -like "*.tar" -or $attachment.Name -like "*.tar.gz") {
-                            
-                            $originalFilePath = Join-Path -Path $ResolvedReportsPath -ChildPath $attachment.Name
-                            
-                            # Check if the file has already been downloaded
-                            if (Test-Path $originalFilePath) {
-                                Write-Host "Skipping already downloaded attachment: $($attachment.Name)"
-                                continue # Skip to the next attachment
-                            }
-
-                            # File does not exist, proceed to save.
-                            $filePath = $originalFilePath
-                            $counter = 1
-                            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($attachment.Name)
-                            $extension = [System.IO.Path]::GetExtension($attachment.Name)
-                            # This loop handles rare cases where a new file might conflict if downloaded in the same run with same name
-                            while (Test-Path $filePath) { 
-                                $newFileName = "{0}_{1}{2}" -f $baseName, $counter, $extension
-                                $filePath = Join-Path -Path $ResolvedReportsPath -ChildPath $newFileName
-                                $counter++
-                            }
-
-                            Write-Host "Attempting to save attachment: $($attachment.Name) to $filePath"
-                            
-                            # Use Invoke-MgGraphRequest to get the raw content of the attachment ($value endpoint) and save to file
-                            $attachmentValueUri = "/users/$MailboxEmail/messages/$($message.Id)/attachments/$($attachment.Id)/`$value" # Note: $value needs escaping with backtick for PowerShell
-                            try {
-                                # Get the raw content of the attachment
-                                $attachmentContent = Invoke-MgGraphRequest -Method GET -Uri $attachmentValueUri -ErrorAction Stop
-                                
-                                if ($attachmentContent) {
-                                    [System.IO.File]::WriteAllBytes($filePath, $attachmentContent)
-                                    Write-Host "Successfully saved attachment: $($attachment.Name) to $filePath"
-                                } else {
-                                    Write-Warning "Invoke-MgGraphRequest returned no content for attachment '$($attachment.Name)'. Skipping."
-                                }
-                            }
-                            catch {
-                                Write-Warning "Failed to retrieve or save attachment '$($attachment.Name)' to '$filePath' using Invoke-MgGraphRequest. Error: $($_.Exception.Message). Skipping."
-                                # If the file was partially created before an error, attempt to remove it.
-                                if (Test-Path $filePath) {
-                                    Remove-Item $filePath -ErrorAction SilentlyContinue
-                                }
-                                continue # Skip to the next attachment
-                            }
-                        } else {
-                            # This message now means the filename pattern did not match.
-                            Write-Host "Skipping attachment '$($attachment.Name)' as its name does not match DMARC report patterns."
-                        }
-                    }
-                } else {
-                    Write-Host "No attachments found for email: $($message.Subject) despite HasAttachments being true, or error fetching attachments."
-                }
-            } else {
-                Write-Host "Email '$($message.Subject)' has no attachments indicated."
-            }
-        }
+    # Main application loop
+    $keepRunning = $true
+    while ($keepRunning) {
+        $keepRunning = Show-MainMenu -UserEmail $MailboxEmail
     }
 
 }
 catch {
-    Write-Error "An error occurred: $($_.Exception.Message)"
+    Write-Error "Er is een fout opgetreden: $($_.Exception.Message)"
     if ($_.ScriptStackTrace) {
         Write-Error "StackTrace: $($_.ScriptStackTrace)"
     }
