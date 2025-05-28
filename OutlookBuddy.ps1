@@ -110,8 +110,15 @@ function Index-Mailbox {
 
             $sender = $message.Sender.EmailAddress
             if ($sender -and $sender.Address) {
-                $senderAddress = $sender.Address.ToLowerInvariant() # Normaliseer e-mailadres
-                $senderName = $sender.Name
+                # Groepeer op domein
+                $senderFullAddress = $sender.Address
+                $domain = ($senderFullAddress -split '@')[1]
+                if ([string]::IsNullOrWhiteSpace($domain)) {
+                    $domain = "onbekend_domein" # Fallback voor ongeldige e-mailadressen
+                }
+                $domainKey = $domain.ToLowerInvariant()
+                # De 'naam' voor de cache entry wordt nu het domein zelf.
+                # De oorspronkelijke $senderName ($sender.Name) wordt niet meer direct gebruikt voor de groepering.
 
                 # Bepaal de grootte van het bericht, afhankelijk van of de 'Size' eigenschap succesvol kon worden opgevraagd
                 $currentMessageSize = $null
@@ -135,16 +142,16 @@ function Index-Mailbox {
                     Categories       = $message.Categories
                 }
                 
-                if ($Script:SenderCache.ContainsKey($senderAddress)) {
-                    $Script:SenderCache[$senderAddress].Count++
-                    $Script:SenderCache[$senderAddress].Messages.Add($messageDetail)
+                if ($Script:SenderCache.ContainsKey($domainKey)) {
+                    $Script:SenderCache[$domainKey].Count++
+                    $Script:SenderCache[$domainKey].Messages.Add($messageDetail)
                 } else {
-                    $Script:SenderCache[$senderAddress] = @{
-                        Name     = $senderName
+                    $Script:SenderCache[$domainKey] = @{
+                        Name     = $domainKey # Sla het domein op als 'Name' voor consistentie
                         Count    = 1
-                        Messages = [System.Collections.Generic.List[PSObject]]::new() # Gebruik een .NET List voor betere prestaties bij toevoegen
+                        Messages = [System.Collections.Generic.List[PSObject]]::new()
                     }
-                    $Script:SenderCache[$senderAddress].Messages.Add($messageDetail)
+                    $Script:SenderCache[$domainKey].Messages.Add($messageDetail)
                 }
             }
         }
@@ -165,135 +172,256 @@ function Index-Mailbox {
 
 function Show-SenderOverview {
     param($UserId)
-    Clear-Host
-    Write-Host "Overzicht van verzenders voor $UserId"
-    Write-Host "------------------------------------"
+
+    # Sla huidige consolekleuren op (wordt hersteld door Show-MainMenu bij terugkeer)
+    # $originalForegroundColor = $Host.UI.RawUI.ForegroundColor
+    # $originalBackgroundColor = $Host.UI.RawUI.BackgroundColor
+
+    # Definieer CGA-kleurenschema (consistent met Show-MainMenu)
+    $cgaBgColor = [System.ConsoleColor]::Black
+    $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green
+    $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White
+    $cgaWarningFgColor = [System.ConsoleColor]::Red
 
     if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
-        Write-Warning "De mailbox is nog niet geïndexeerd of de index is leeg."
-        Write-Warning "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen."
+        $Host.UI.RawUI.ForegroundColor = $cgaWarningFgColor
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+        Clear-Host
+        Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
+        Write-Host "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen." -ForegroundColor $cgaWarningFgColor
+        $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor # Voor Read-Host prompt
         Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        # Kleuren worden hersteld door Show-MainMenu
         return
     }
 
-    # Converteer de hashtable naar een array van custom objecten voor sortering en weergave
-    $senderList = @()
-    foreach ($key in $Script:SenderCache.Keys) {
-        $senderList += [PSCustomObject]@{
-            Email = $key
-            Name  = $Script:SenderCache[$key].Name
-            Count = $Script:SenderCache[$key].Count
+    # Converteer de hashtable (nu met domeinen als keys) naar een array voor sortering en weergave
+    $domainList = @()
+    foreach ($domainKey in $Script:SenderCache.Keys) {
+        $domainList += [PSCustomObject]@{
+            Domain = $domainKey # De key is het domein
+            Name   = $Script:SenderCache[$domainKey].Name # Dit is ook het domein
+            Count  = $Script:SenderCache[$domainKey].Count
         }
     }
 
-    # Sorteer op aantal (aflopend) en dan op naam (oplopend)
-    $sortedSenders = $senderList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Name
+    $sortedDomains = $domainList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Domain
 
-    if ($sortedSenders.Count -eq 0) {
-        Write-Host "Geen afzenders gevonden in de cache (dit zou niet moeten gebeuren als de indexering succesvol was)."
+    if ($sortedDomains.Count -eq 0) {
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+        Clear-Host
+        Write-Host "Geen domeinen gevonden in de cache."
+        $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
         Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
         return
     }
     
-    $selectableSenders = @{}
-    $i = 1
-    Write-Host "Afzenders gesorteerd op aantal e-mails (meeste eerst):"
-    Write-Host "------------------------------------------------------------------------------------------"
-    # Header voor de tabel
-    Write-Host ("{0,-5} {1,-7} {2,-35} {3,-40}" -f "#", "Aantal", "Naam", "E-mailadres")
-    Write-Host "------------------------------------------------------------------------------------------"
+    $selectedItemIndex = 0
+    $menuLoopActive = $true
 
-    foreach ($sender in $sortedSenders) {
-        Write-Host ("{0,-5} {1,-7} {2,-35} {3,-40}" -f $i, $sender.Count, $sender.Name, $sender.Email)
-        $selectableSenders[$i] = $sender
-        $i++
-    }
-    Write-Host "------------------------------------------------------------------------------------------"
-    Write-Host "T. Terug naar hoofdmenu"
+    while ($menuLoopActive) {
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+        Clear-Host
 
-    while ($true) {
-        $choice = Read-Host "Kies een afzendernummer (1-$($i-1)) om e-mails te bekijken/beheren, of T om terug te keren"
-        if ($choice -eq 'T' -or $choice -eq 't') {
+        $title = "Overzicht van afzenderdomeinen voor $UserId"
+        $separator = "--------------------------------------------------------------------" # Aangepaste breedte
+        $instructionText = "Gebruik ↑/↓, Enter om te kiezen, Esc of T om terug te keren."
+        
+        # Bereken dynamische breedte en padding
+        $tempMenuContentForWidth = @($title) + @($separator)
+        foreach ($domainEntry in $sortedDomains) {
+            # Formatteer hoe het item eruit zal zien voor breedteberekening
+            $tempMenuContentForWidth += ("{0,-7} {1,-50}" -f $domainEntry.Count, $domainEntry.Domain)
+        }
+        $tempMenuContentForWidth += $instructionText
+        
+        $menuWidth = 0
+        foreach ($line in $tempMenuContentForWidth) {
+            if ($line.Length -gt $menuWidth) { $menuWidth = $line.Length }
+        }
+        # Voeg een beetje extra toe aan de menuWidth voor de # kolom en selectie
+        $menuWidth += 7 # Ruimte voor "#. " en wat speling
+        $frameWidth = $menuWidth + 4 
+        $consoleWidth = $Host.UI.RawUI.WindowSize.Width
+        $leftPaddingSpaces = [Math]::Max(0, ($consoleWidth - $frameWidth) / 2)
+        $leftPadding = " " * $leftPaddingSpaces
+        $innerFramePadding = "  "
+
+        # Verticale padding
+        1..3 | ForEach-Object { Write-Host "" }
+
+        # Teken titel en header
+        Write-Host ($leftPadding + $innerFramePadding + $title.PadRight($menuWidth) + $innerFramePadding)
+        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
+        $header = "{0,-5} {1,-7} {2,-50}" -f "#", "Aantal", "Domein" # Kolom voor selectienummer
+        Write-Host ($leftPadding + $innerFramePadding + $header.PadRight($menuWidth) + $innerFramePadding)
+        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
+
+        # Teken lijst van domeinen
+        for ($i = 0; $i -lt $sortedDomains.Count; $i++) {
+            $domainEntry = $sortedDomains[$i]
+            $itemNumber = $i + 1
+            $itemText = "{0,-5} {1,-7} {2,-50}" -f "$itemNumber.", $domainEntry.Count, $domainEntry.Domain
+            $lineContent = $innerFramePadding + $itemText.PadRight($menuWidth) + $innerFramePadding
+            
+            if ($i -eq $selectedItemIndex) {
+                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+            } else {
+                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaFgColor -BackgroundColor $cgaBgColor
+            }
+        }
+        
+        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
+        Write-Host ($leftPadding + $innerFramePadding + $instructionText.PadRight($menuWidth) + $innerFramePadding) -ForegroundColor $cgaInstructionFgColor
+
+        # Wacht op toetsaanslag
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
+        $choiceToProcess = $null
+
+        switch ($keyInfo.VirtualKeyCode) {
+            38 { # UpArrow
+                $selectedItemIndex--
+                if ($selectedItemIndex -lt 0) { $selectedItemIndex = $sortedDomains.Count - 1 }
+            }
+            40 { # DownArrow
+                $selectedItemIndex++
+                if ($selectedItemIndex -ge $sortedDomains.Count) { $selectedItemIndex = 0 }
+            }
+            13 { # Enter
+                $choiceToProcess = $selectedItemIndex # Gebruik index direct
+            }
+            27 { # Escape
+                $menuLoopActive = $false # Stop de lus, keer terug naar hoofdmenu
+            }
+            default {
+                $charPressed = $keyInfo.Character.ToString().ToUpper()
+                if ($charPressed -eq 'T') {
+                    $menuLoopActive = $false # Stop de lus, keer terug
+                } elseif ($charPressed -match "^\d+$") { # Als een nummer is ingevoerd
+                    $numChoice = [int]$charPressed
+                    if ($numChoice -ge 1 -and $numChoice -le $sortedDomains.Count) {
+                        $selectedItemIndex = $numChoice - 1
+                        $choiceToProcess = $selectedItemIndex
+                    }
+                }
+            }
+        }
+
+        if (-not $menuLoopActive) { # Als Esc of T is gedrukt
+            # Kleuren worden hersteld door Show-MainMenu
             return
         }
-        if ($selectableSenders.ContainsKey($choice)) {
-            $selectedSenderInfo = $selectableSenders[$choice]
-            # Roep een nieuwe functie aan om e-mails van deze afzender te tonen en te beheren
-            Show-EmailsFromSelectedSender -UserId $UserId -SenderInfo $selectedSenderInfo
-            # Na terugkeer van Show-EmailsFromSelectedSender, toon het overzicht opnieuw
-            # omdat de cache mogelijk is gewijzigd (bijv. een afzender heeft geen e-mails meer).
-            # Roep Show-SenderOverview opnieuw aan of herlaad de data hier.
-            # Voor nu, keren we terug naar het hoofdmenu, de gebruiker kan dan opnieuw kiezen.
-            # Een betere UX zou zijn om de lijst te verversen.
-            # Echter, de functie Show-SenderOverview opnieuw aanroepen vanuit zichzelf kan leiden tot diepe recursie.
-            # Het is beter om de lus in Show-MainMenu de herhaling te laten afhandelen.
-            # We moeten de $senderList en $sortedSenders opnieuw opbouwen als we hier blijven.
-            # Voor nu, na een actie, keren we terug naar het hoofdmenu. De gebruiker kan dan opnieuw "Overzicht van verzenders" kiezen.
-            # Dit vereist dat Show-EmailsFromSelectedSender terugkeert wanneer het klaar is.
-            return # Keer terug naar hoofdmenu, zodat de gebruiker opnieuw kan navigeren.
-                   # De cache is mogelijk gewijzigd, dus een nieuwe weergave is sowieso nodig.
-        } else {
-            Write-Warning "Ongeldige keuze. Probeer opnieuw."
+
+        if ($choiceToProcess -ne $null) {
+            $selectedDomainInfo = $sortedDomains[$choiceToProcess] # $choiceToProcess is de index
+            
+            # Herstel standaard consolekleuren voordat een subfunctie wordt aangeroepen
+            # Dit wordt afgehandeld door Show-MainMenu bij terugkeer, en subfuncties moeten hun eigen kleuren instellen indien nodig.
+            # Voor nu, roepen we de volgende functie aan. Deze moet ook CGA-bewust zijn of kleuren herstellen.
+            
+            # BELANGRIJK: Show-EmailsFromSelectedSender moet worden aangepast om een domein te accepteren
+            # en de $SenderInfo parameter moet mogelijk hernoemd worden naar $DomainInfo of iets dergelijks.
+            # Voor nu, passen we de aanroep aan met de verwachting dat $SenderInfo een object is met een .Domain eigenschap.
+            # De naam $selectedSenderInfo wordt $selectedDomainInfo.
+            # De parameter voor Show-EmailsFromSelectedSender heet $SenderInfo, we sturen een object met .Email, .Name, .Count
+            # We moeten een object maken dat overeenkomt, of Show-EmailsFromSelectedSender aanpassen.
+            # Laten we $selectedDomainInfo direct doorgeven en Show-EmailsFromSelectedSender aanpassen.
+            Show-EmailsFromSelectedSender -UserId $UserId -SenderInfo $selectedDomainInfo # $selectedDomainInfo heeft .Domain, .Name, .Count
+            
+            # Na terugkeer van Show-EmailsFromSelectedSender, wordt de lijst opnieuw getoond.
+            # De cache kan gewijzigd zijn, dus de $sortedDomains moeten mogelijk opnieuw worden opgebouwd.
+            # De huidige lus zal dit automatisch doen bij de volgende iteratie als $menuLoopActive nog true is.
+            # Echter, als Show-EmailsFromSelectedSender terugkeert, willen we meestal terug naar het hoofdmenu
+            # om de gebruiker niet vast te houden in een diepere menustructuur zonder duidelijke "terug" optie.
+            # De huidige Show-EmailsFromSelectedSender retourneert naar Show-SenderOverview, die dan opnieuw de lijst toont.
+            # Dit is acceptabel. We moeten wel de $sortedDomains opnieuw laden als de cache is veranderd.
+            # Dit gebeurt aan het begin van de Show-SenderOverview functie.
+            # Dus, na een actie in Show-EmailsFromSelectedSender, zal deze functie opnieuw de data laden.
+            # We moeten de lus niet stoppen, tenzij de gebruiker expliciet terug wil (Esc/T).
+            # De $sortedDomains worden aan het begin van de functie geladen, niet in de lus. Dit moet veranderen.
+            # Herlaad de data hier als we in de lus blijven na een actie.
+            # Voor nu, na een actie in Show-EmailsFromSelectedSender, keert die functie terug,
+            # en deze lus gaat verder, en tekent opnieuw. De data moet dan wel actueel zijn.
+            # De eenvoudigste manier is om Show-SenderOverview opnieuw aan te roepen of de data hier te herladen.
+            # Laten we de data herladen:
+            $domainList = @()
+            foreach ($domainKey in $Script:SenderCache.Keys) {
+                $domainList += [PSCustomObject]@{ Domain = $domainKey; Name = $Script:SenderCache[$domainKey].Name; Count  = $Script:SenderCache[$domainKey].Count }
+            }
+            $sortedDomains = $domainList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Domain
+            if ($sortedDomains.Count -eq 0 -or $selectedItemIndex -ge $sortedDomains.Count) { # Als alle items van een domein zijn verwijderd
+                $selectedItemIndex = 0 # Reset selectie
+                if ($sortedDomains.Count -eq 0) { # Als er helemaal geen domeinen meer zijn
+                    $menuLoopActive = $false # Verlaat de functie
+                    # De melding "Geen domeinen gevonden" wordt dan getoond bij de volgende aanroep van Show-SenderOverview
+                }
+            }
+            # Ga door met de volgende iteratie van de lus om het menu opnieuw te tekenen
         }
     }
-    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verplaatst naar de lus of niet meer nodig
+    # Kleuren worden hersteld door Show-MainMenu
 }
 
 
 # Nieuwe helper functie om de cache bij te werken
 function Update-SenderCache {
     param (
-        [string]$SenderEmail,
-        [string]$MessageIdToRemove, # Optioneel, voor het verwijderen van een specifiek bericht
-        [switch]$RemoveAllMessagesFromSender # Optioneel, voor het verwijderen van de hele sender entry
+        [string]$DomainToUpdate, # Aangepast van SenderEmail naar DomainToUpdate
+        [string]$MessageIdToRemove, 
+        [switch]$RemoveAllMessagesFromDomain # Aangepast van Sender naar Domain
     )
 
-    $normalizedSenderEmail = $SenderEmail.ToLowerInvariant()
+    $normalizedDomainKey = $DomainToUpdate.ToLowerInvariant()
 
-    if (-not $Script:SenderCache.ContainsKey($normalizedSenderEmail)) {
-        Write-Warning "Kan afzender '$normalizedSenderEmail' niet vinden in de cache voor update."
+    if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
+        Write-Warning "Kan domein '$normalizedDomainKey' niet vinden in de cache voor update."
         return
     }
 
-    if ($RemoveAllMessagesFromSender) {
-        Write-Host "Alle berichten van '$normalizedSenderEmail' worden uit de cache verwijderd."
-        $Script:SenderCache.Remove($normalizedSenderEmail)
+    if ($RemoveAllMessagesFromDomain) {
+        Write-Host "Alle berichten van domein '$normalizedDomainKey' worden uit de cache verwijderd."
+        $Script:SenderCache.Remove($normalizedDomainKey)
     } elseif ($MessageIdToRemove) {
-        $messagesList = $Script:SenderCache[$normalizedSenderEmail].Messages
+        $messagesList = $Script:SenderCache[$normalizedDomainKey].Messages
         $messageToRemove = $messagesList | Where-Object { $_.MessageId -eq $MessageIdToRemove } | Select-Object -First 1
         
         if ($messageToRemove) {
             $messagesList.Remove($messageToRemove)
-            $Script:SenderCache[$normalizedSenderEmail].Count = $messagesList.Count
-            Write-Host "Bericht met ID '$MessageIdToRemove' verwijderd uit cache voor '$normalizedSenderEmail'. Nieuw aantal: $($messagesList.Count)."
+            $Script:SenderCache[$normalizedDomainKey].Count = $messagesList.Count
+            Write-Host "Bericht met ID '$MessageIdToRemove' verwijderd uit cache voor domein '$normalizedDomainKey'. Nieuw aantal: $($messagesList.Count)."
 
             if ($messagesList.Count -eq 0) {
-                Write-Host "Geen berichten meer voor '$normalizedSenderEmail'. Afzender wordt uit cache verwijderd."
-                $Script:SenderCache.Remove($normalizedSenderEmail)
+                Write-Host "Geen berichten meer voor domein '$normalizedDomainKey'. Domein wordt uit cache verwijderd."
+                $Script:SenderCache.Remove($normalizedDomainKey)
             }
         } else {
-            Write-Warning "Kon bericht met ID '$MessageIdToRemove' niet vinden in de cache voor '$normalizedSenderEmail'."
+            Write-Warning "Kon bericht met ID '$MessageIdToRemove' niet vinden in de cache voor domein '$normalizedDomainKey'."
         }
     }
-    # Als er geen specifieke actie is, doet de functie niets, maar dat zou niet moeten voorkomen.
 }
 
 # Nieuwe functie om e-mails van een geselecteerde afzender te tonen en acties te starten
 function Show-EmailsFromSelectedSender {
     param (
         [string]$UserId,
-        [PSCustomObject]$SenderInfo # Bevat .Email, .Name, .Count
+        [PSCustomObject]$SenderInfo # Ontvangt nu een object met .Domain, .Name (is domein), .Count
     )
 
-    $senderEmail = $SenderInfo.Email 
-    # De messages zijn al in de cache onder $Script:SenderCache[$senderEmailKey].Messages
-    # We moeten de genormaliseerde key gebruiken
-    $normalizedSenderEmail = $senderEmail.ToLowerInvariant()
+    $domainName = $SenderInfo.Domain # Gebruik .Domain ipv .Email
+    $normalizedDomainKey = $domainName.ToLowerInvariant()
 
-    # Blijf in een lus zolang er berichten zijn voor deze afzender en de gebruiker niet terug wil
-    while ($Script:SenderCache.ContainsKey($normalizedSenderEmail) -and $Script:SenderCache[$normalizedSenderEmail].Messages.Count -gt 0) {
-        Clear-Host
-        $cachedSenderEntry = $Script:SenderCache[$normalizedSenderEmail]
+    # Blijf in een lus zolang er berichten zijn voor dit domein en de gebruiker niet terug wil
+    while ($Script:SenderCache.ContainsKey($normalizedDomainKey) -and $Script:SenderCache[$normalizedDomainKey].Messages.Count -gt 0) {
+        # CGA Kleuren moeten hier ook worden ingesteld als deze functie direct wordt aangeroepen
+        # en niet via een menu dat al kleuren beheert.
+        # Voor nu gaan we ervan uit dat de aanroepende functie (Show-SenderOverview) de kleuren beheert.
+        Clear-Host 
+        $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
         $messagesFromSender = $cachedSenderEntry.Messages | Sort-Object ReceivedDateTime -Descending
         
         Write-Host "E-mails van: $($cachedSenderEntry.Name) <$senderEmail>"
@@ -304,7 +432,7 @@ function Show-EmailsFromSelectedSender {
 
         $selectableMessages = @{}
         $emailIndex = 1
-        foreach ($message in $messagesFromSender) {
+        foreach ($message in $messagesFromDomain) { # Itereren over berichten van het domein
             $subjectDisplay = if ($message.Subject) { ($message.Subject | Select-Object -First 1) } else { "(Geen onderwerp)" }
             if ($subjectDisplay.Length -gt 57) { $subjectDisplay = $subjectDisplay.Substring(0, 57) + "..." }
             
@@ -317,19 +445,20 @@ function Show-EmailsFromSelectedSender {
         }
         Write-Host "-------------------------------------------------------------------------------------------------------------------"
         Write-Host "Kies een e-mailnummer (1-$($emailIndex-1)) voor acties op die e-mail."
-        Write-Host "A. Beheer ALLE e-mails van deze afzender (Verwijder/Verplaats alle)"
-        Write-Host "T. Terug naar overzicht van afzenders"
+        Write-Host "A. Beheer ALLE e-mails van dit domein (Verwijder/Verplaats alle)" # Tekst aangepast
+        Write-Host "T. Terug naar overzicht van domeinen" # Tekst aangepast
 
-        $actionChoice = Read-Host "Uw keuze"
+        $actionChoice = Read-Host "Uw keuze" # TODO: Dit menu kan ook CGA/pijltjes krijgen
 
         if ($actionChoice -eq 'T' -or $actionChoice -eq 't') {
             return # Terug naar Show-SenderOverview
         } elseif ($actionChoice -eq 'A' -or $actionChoice -eq 'a') {
-            # Roep functie aan om ALLE e-mails van deze afzender te beheren
-            $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderEmail $senderEmail -AllMessages $messagesFromSender
+            # Roep functie aan om ALLE e-mails van dit DOMEIN te beheren
+            # Perform-ActionOnAllSenderEmails moet worden aangepast om met een domein om te gaan
+            $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $domainName -AllMessages $messagesFromDomain
             if ($allMessagesWereModified) {
-                # Als alle berichten zijn aangepast (bijv. verwijderd), is de afzender mogelijk niet meer in de cache.
-                # De lusconditie `while ($Script:SenderCache.ContainsKey($normalizedSenderEmail))` zal dit afhandelen.
+                # Als alle berichten zijn aangepast (bijv. verwijderd), is het domein mogelijk niet meer in de cache.
+                # De lusconditie `while ($Script:SenderCache.ContainsKey($normalizedDomainKey))` zal dit afhandelen.
                 # Als de entry weg is, zal de lus stoppen en de functie retourneren.
                 # Als de entry er nog is (bijv. verplaatsen mislukt voor sommigen), blijft de lus.
                 # Het is veilig om hier gewoon door te gaan met de volgende iteratie van de while-lus.
@@ -338,7 +467,8 @@ function Show-EmailsFromSelectedSender {
         } elseif ($selectableMessages.ContainsKey($actionChoice)) {
             $selectedMessageObject = $selectableMessages[$actionChoice]
             # Roep functie aan om een ENKELE e-mail te beheren
-            Perform-ActionOnSingleEmail -UserId $UserId -MessageObject $selectedMessageObject -SenderEmailToUpdateCache $senderEmail
+            # Perform-ActionOnSingleEmail moet worden aangepast om met een domein om te gaan voor cache updates
+            Perform-ActionOnSingleEmail -UserId $UserId -MessageObject $selectedMessageObject -DomainToUpdateCache $domainName
             # Na een actie op een enkele e-mail, wordt de lijst automatisch opnieuw opgebouwd in de volgende lus-iteratie,
             # en de tellingen/berichten zijn bijgewerkt als de cache correct is aangepast.
         } else {
@@ -346,10 +476,10 @@ function Show-EmailsFromSelectedSender {
             Read-Host "Druk op Enter om door te gaan."
         }
     }
-    # Als de lus eindigt omdat de afzender geen berichten meer heeft of niet meer in de cache is:
-    Write-Host "Geen (resterende) e-mails gevonden voor $senderEmail in de cache, of de afzender is verwijderd uit de cache."
-    Read-Host "Druk op Enter om terug te keren naar het overzicht van afzenders."
-    # De functie retourneert nu, en Show-SenderOverview zal opnieuw de lijst van afzenders opbouwen.
+    # Als de lus eindigt omdat het domein geen berichten meer heeft of niet meer in de cache is:
+    Write-Host "Geen (resterende) e-mails gevonden voor domein '$domainName' in de cache, of het domein is verwijderd uit de cache."
+    Read-Host "Druk op Enter om terug te keren naar het overzicht van domeinen."
+    # De functie retourneert nu, en Show-SenderOverview zal opnieuw de lijst van domeinen opbouwen.
 }
 
 # Nieuwe functie voor acties op een enkele geselecteerde e-mail
@@ -357,7 +487,7 @@ function Perform-ActionOnSingleEmail {
     param (
         [string]$UserId,
         [PSCustomObject]$MessageObject, # Het $messageDetail object uit de cache
-        [string]$SenderEmailToUpdateCache
+        [string]$DomainToUpdateCache # Aangepast van SenderEmailToUpdateCache
     )
     Clear-Host
     Write-Host "Geselecteerde e-mail:"
@@ -380,7 +510,7 @@ function Perform-ActionOnSingleEmail {
                     Remove-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -ErrorAction Stop
                     Write-Host "E-mail succesvol verwijderd van server."
                     # Update cache
-                    Update-SenderCache -SenderEmail $SenderEmailToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                    Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
                 } catch {
                     Write-Error "Fout bij het verwijderen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
                 }
@@ -397,7 +527,7 @@ function Perform-ActionOnSingleEmail {
                         Move-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
                         Write-Host "E-mail succesvol verplaatst."
                         # Update cache
-                        Update-SenderCache -SenderEmail $SenderEmailToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                        Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
                     } catch {
                         Write-Error "Fout bij het verplaatsen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
                     }
@@ -415,12 +545,13 @@ function Perform-ActionOnAllSenderEmails {
     [CmdletBinding()]
     param (
         [string]$UserId,
-        [string]$SenderEmail, # E-mailadres van de afzender
-        [System.Collections.Generic.List[PSObject]]$AllMessages
+        [string]$SenderDomain, # Aangepast van SenderEmail naar SenderDomain
+        [System.Collections.Generic.List[PSObject]]$AllMessages # Dit zijn alle berichten van het domein
     )
+    [OutputType([bool])] # OutputType was hier al, maar stond verkeerd in eerdere diff. Nu correct geplaatst.
 
     Clear-Host
-    Write-Host "Beheer ALLE e-mails van: $SenderEmail"
+    Write-Host "Beheer ALLE e-mails van domein: $SenderDomain" # Tekst aangepast
     Write-Host "Aantal te verwerken e-mails: $($AllMessages.Count)"
     Write-Host "-------------------------------------------"
     Write-Host "Kies een actie:"
@@ -433,9 +564,9 @@ function Perform-ActionOnAllSenderEmails {
 
     switch ($choice) {
         "1" {
-            $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van '$SenderEmail' permanent wilt verwijderen? (ja/nee)"
+            $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' permanent wilt verwijderen? (ja/nee)" # Tekst aangepast
             if ($confirm -eq 'ja') {
-                Write-Host "Starten met verwijderen van $($AllMessages.Count) e-mails..."
+                Write-Host "Starten met verwijderen van $($AllMessages.Count) e-mails van domein '$SenderDomain'..." # Tekst aangepast
                 $processedCount = 0
                 $errorCount = 0
                 foreach ($message in $AllMessages) {
@@ -453,9 +584,9 @@ function Perform-ActionOnAllSenderEmails {
                 Write-Host "Verwijderen voltooid. $($AllMessages.Count - $errorCount) e-mail(s) verwijderd."
                 if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd." }
                 
-                if ($allProcessedSuccessfully) { # Alleen als alles goed ging, verwijder de hele sender entry
-                    Update-SenderCache -SenderEmail $SenderEmail -RemoveAllMessagesFromSender
-                    return $true # Signaleer dat de afzender entry mogelijk weg is
+                if ($allProcessedSuccessfully) { # Alleen als alles goed ging, verwijder de hele domein entry
+                    Update-SenderCache -DomainToUpdate $SenderDomain -RemoveAllMessagesFromDomain # Aangepast
+                    return $true # Signaleer dat de domein entry mogelijk weg is
                 } elseif (($AllMessages.Count - $errorCount) -gt 0) { # Als sommigen zijn verwijderd, maar niet allen
                     # De cache moet individueel geüpdatet worden voor de succesvol verwijderde items.
                     # Dit is complexer; voor nu, informeer de gebruiker om opnieuw te indexeren.
@@ -467,9 +598,9 @@ function Perform-ActionOnAllSenderEmails {
             $destinationFolderId = Get-MailFolderSelection -UserId $UserId
             if ($destinationFolderId) {
                 $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
-                $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van '$SenderEmail' wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
+                $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)" # Tekst aangepast
                 if ($confirm -eq 'ja') {
-                    Write-Host "Starten met verplaatsen van $($AllMessages.Count) e-mails naar '$($destinationFolder.DisplayName)'..."
+                    Write-Host "Starten met verplaatsen van $($AllMessages.Count) e-mails van domein '$SenderDomain' naar '$($destinationFolder.DisplayName)'..." # Tekst aangepast
                     $processedCount = 0
                     $errorCount = 0
                     foreach ($message in $AllMessages) {
@@ -488,10 +619,10 @@ function Perform-ActionOnAllSenderEmails {
                     if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verplaatst." }
 
                     if ($allProcessedSuccessfully) {
-                        Update-SenderCache -SenderEmail $SenderEmail -RemoveAllMessagesFromSender
-                        return $true # Signaleer dat de afzender entry mogelijk weg is
+                        Update-SenderCache -DomainToUpdate $SenderDomain -RemoveAllMessagesFromDomain # Aangepast
+                        return $true # Signaleer dat de domein entry mogelijk weg is
                     } elseif (($AllMessages.Count - $errorCount) -gt 0) {
-                         Write-Warning "Niet alle e-mails konden worden verplaatst. De cache voor deze afzender is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
+                         Write-Warning "Niet alle e-mails konden worden verplaatst. De cache voor dit domein is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht." # Tekst aangepast
                     }
                 } else { Write-Host "Verplaatsen geannuleerd." }
             } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
