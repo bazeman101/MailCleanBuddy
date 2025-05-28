@@ -815,24 +815,24 @@ function Show-RecentEmails {
 
         switch ($keyInfo.VirtualKeyCode) {
             38 { # UpArrow
-                if ($selectedEmailIndex > 0) { $selectedEmailIndex-- }
-                if ($selectedEmailIndex < $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex } # Scroll view up
+                if ($selectedEmailIndex -gt 0) { $selectedEmailIndex-- }
+                if ($selectedEmailIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex } # Scroll view up
             }
             40 { # DownArrow
-                if ($selectedEmailIndex < ($recentMessages.Count - 1)) { $selectedEmailIndex++ }
-                if ($selectedEmailIndex > $endDisplayIndex) { $topDisplayIndex++ } # Scroll view down
+                if ($selectedEmailIndex -lt ($recentMessages.Count - 1)) { $selectedEmailIndex++ }
+                if ($selectedEmailIndex -gt $endDisplayIndex) { $topDisplayIndex++ } # Scroll view down
             }
             33 { # PageUp
                 $selectedEmailIndex = [Math]::Max(0, $selectedEmailIndex - $displayLines)
                 $topDisplayIndex = [Math]::Max(0, $topDisplayIndex - $displayLines)
-                if ($selectedEmailIndex < $topDisplayIndex) {$topDisplayIndex = $selectedEmailIndex}
+                if ($selectedEmailIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedEmailIndex}
 
             }
             34 { # PageDown
                 $selectedEmailIndex = [Math]::Min(($recentMessages.Count - 1), $selectedEmailIndex + $displayLines)
                 $topDisplayIndex = [Math]::Min(($recentMessages.Count - $displayLines), $topDisplayIndex + $displayLines)
-                if ($topDisplayIndex < 0) {$topDisplayIndex = 0}
-                if ($selectedEmailIndex > ($topDisplayIndex + $displayLines -1)) {$topDisplayIndex = $selectedEmailIndex - $displayLines + 1}
+                if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0}
+                if ($selectedEmailIndex -gt ($topDisplayIndex + $displayLines -1)) {$topDisplayIndex = $selectedEmailIndex - $displayLines + 1}
 
 
             }
@@ -875,7 +875,7 @@ function Show-RecentEmails {
                 } else {
                     $messagesToActOn.Add($recentMessages[$selectedEmailIndex])
                 }
-                if ($messagesToActOn.Count > 0) {
+                if ($messagesToActOn.Count -gt 0) {
                     $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                     Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" # Dummy domain
                     $spaceSelectedMessageIds.Clear()
@@ -890,10 +890,10 @@ function Show-RecentEmails {
                 if ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $emailListLoopActive = $false }
             }
         }
-         # Zorg ervoor dat topDisplayIndex en selectedEmailIndex binnen de grenzen blijven na herladen/verwijderen
-        if ($recentMessages.Count > 0) {
+        # Zorg ervoor dat topDisplayIndex en selectedEmailIndex binnen de grenzen blijven na herladen/verwijderen
+        if ($recentMessages.Count -gt 0) {
             $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $recentMessages.Count - $displayLines))
-            if ($topDisplayIndex < 0) {$topDisplayIndex = 0} # Voorkom negatief
+            if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} # Voorkom negatief
             $selectedEmailIndex = [Math]::Max(0, [Math]::Min($selectedEmailIndex, $recentMessages.Count - 1))
         } else { # Geen berichten meer
             $emailListLoopActive = $false
