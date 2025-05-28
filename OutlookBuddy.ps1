@@ -89,8 +89,8 @@ function Index-Mailbox {
         }
         
         if ($null -eq $messages -or $messages.Count -eq 0) {
-            Write-Warning "Geen berichten gevonden in de mailbox."
-            Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+            Write-Warning "Geen berichten gevonden in de mailbox tijdens het indexeren."
+            # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
             return
         }
 
@@ -162,11 +162,14 @@ function Index-Mailbox {
         
     } catch {
         Write-Error "Fout tijdens het indexeren van de mailbox: $($_.Exception.Message)"
+        if ($_.Exception.InnerException) {
+            Write-Error "Inner Exception: $($_.Exception.InnerException.Message)"
+        }
         if ($_.ScriptStackTrace) {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd, Escape in hoofdmenu is de weg terug
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Al eerder verwijderd
 }
 
 function Show-SenderOverview {
@@ -2220,15 +2223,14 @@ function Show-MainMenu {
 
     # Menu-items en bijbehorende actiecodes
     $menuItems = @(
-        "1. Indexeer mailbox",
-        "2. Overzicht van verzenders",
-        "3. Beheer mails van specifieke afzender",
-        "4. Zoek naar een mail",
-        "5. Bekijk laatste 100 e-mails", # Nieuw item
-        "6. Leeg 'Verwijderde Items'",   # Oude 5 wordt 6
+        "1. Overzicht van verzenders",                # Was 2
+        "2. Beheer mails van specifieke afzender",    # Was 3
+        "3. Zoek naar een mail",                       # Was 4
+        "4. Bekijk laatste 100 e-mails",            # Was 5
+        "5. Leeg 'Verwijderde Items'",              # Was 6
         "Q. Afsluiten"
     )
-    $actionCodes = "1", "2", "3", "4", "5", "6", "Q" # Aangepaste actiecodes
+    $actionCodes = "1", "2", "3", "4", "5", "Q" # Aangepaste actiecodes, indexering is verwijderd
     
     $selectedItemIndex = 0
     $menuLoopActive = $true
@@ -2322,12 +2324,11 @@ function Show-MainMenu {
             Clear-Host # Maak scherm schoon met originele kleuren voor de subactie
 
             switch ($choiceToProcess) {
-                "1" { Index-Mailbox -UserId $UserEmail }
-                "2" { Show-SenderOverview -UserId $UserEmail }
-                "3" { Manage-EmailsBySender -UserId $UserEmail }
-                "4" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent }
-                "5" { Show-RecentEmails -UserId $UserEmail } # Nieuwe actie
-                "6" { Empty-DeletedItemsFolder -UserId $UserEmail } # Oude 5 wordt 6
+                "1" { Show-SenderOverview -UserId $UserEmail }                # Was 2
+                "2" { Manage-EmailsBySender -UserId $UserEmail }            # Was 3
+                "3" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent } # Was 4
+                "4" { Show-RecentEmails -UserId $UserEmail }                # Was 5
+                "5" { Empty-DeletedItemsFolder -UserId $UserEmail }          # Was 6
                 "Q" {
                     Write-Host "Afsluiten..."
                     $menuLoopActive = $false # Stop de menulus
@@ -2423,9 +2424,14 @@ try {
         if (-not (Get-Command Get-MgUserMessage -ErrorAction SilentlyContinue)) {
             throw "Kritiek: Get-MgUserMessage cmdlet is niet beschikbaar na een succesvolle verbinding met Microsoft Graph. Controleer de Microsoft.Graph.Mail module."
         }
+        Write-Host "Verbinding succesvol. Starten met automatische indexering van de mailbox..."
+        Index-Mailbox -UserId $MailboxEmail # Automatisch indexeren
+        Write-Host "Automatische indexering voltooid (of poging daartoe)."
+        # Een korte pauze zodat de gebruiker de indexeringsberichten kan zien voordat het menu verschijnt.
+        # Start-Sleep -Seconds 2 # Optioneel, kan verwijderd worden als het niet gewenst is.
     }
     catch {
-        throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
+        throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph of initiële indexering: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
     }
     
     # Main application loop
