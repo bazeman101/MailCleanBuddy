@@ -860,9 +860,7 @@ function Show-RecentEmails {
                 }
                 if ($messagesToActOn.Count > 0) {
                     $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                    # We hebben geen $DomainToUpdateCache hier, dus we kunnen de cache niet direct bijwerken.
-                    # De actie zal de gebruiker waarschuwen om opnieuw te indexeren.
-                    Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" # Dummy domain
+                    Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" -DirectAction "Move"
                     $spaceSelectedMessageIds.Clear()
                     # Herlaad de lijst van recente berichten, want items kunnen verplaatst zijn
                     Write-Host "Herladen van recente e-mails..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
@@ -912,7 +910,9 @@ function Perform-ActionOnMultipleEmails {
     param (
         [string]$UserId,
         [System.Collections.Generic.List[PSObject]]$MessagesToProcess,
-        [string]$DomainToUpdateCache
+        [string]$DomainToUpdateCache,
+        [ValidateSet("Delete", "Move")]
+        [string]$DirectAction = $null # Nieuwe parameter voor directe actie
     )
 
     if ($MessagesToProcess.Count -eq 0) {
@@ -935,39 +935,48 @@ function Perform-ActionOnMultipleEmails {
     $actionLoopActive = $true
     $actionToExecute = $null
 
-    while ($actionLoopActive) {
-        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-        Clear-Host
-
-        Write-Host "Acties voor $($MessagesToProcess.Count) geselecteerde e-mail(s):"
-        Write-Host "-------------------------------------------"
-        for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
-            $itemText = $actionMenuItems[$i]
-            if ($i -eq $selectedActionItemIndex) {
-                Write-Host "> $($itemText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
-            } else {
-                Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
-            }
+    if ($DirectAction) {
+        if ($DirectAction -eq "Delete") {
+            $actionToExecute = $actionMenuItems[0] # "1. Verwijder..."
+        } elseif ($DirectAction -eq "Move") {
+            $actionToExecute = $actionMenuItems[1] # "2. Verplaats..."
         }
-        Write-Host "Gebruik ↑/↓, Enter, Esc" -ForegroundColor $cgaInstructionFgColor
+    } else { # Geen directe actie, toon menu
+        while ($actionLoopActive) {
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host
 
-        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
-
-        switch ($keyInfo.VirtualKeyCode) {
-            38 { $selectedActionItemIndex = ($selectedActionItemIndex - 1 + $actionMenuItems.Count) % $actionMenuItems.Count }
-            40 { $selectedActionItemIndex = ($selectedActionItemIndex + 1) % $actionMenuItems.Count }
-            13 { $actionToExecute = $actionMenuItems[$selectedActionItemIndex]; $actionLoopActive = $false }
-            27 { $actionToExecute = "3. Terug (Esc)"; $actionLoopActive = $false }
-            default {
-                $char = $keyInfo.Character.ToString()
-                if ($char -eq '1') { $selectedActionItemIndex = 0; $actionToExecute = $actionMenuItems[0]; $actionLoopActive = $false }
-                if ($char -eq '2') { $selectedActionItemIndex = 1; $actionToExecute = $actionMenuItems[1]; $actionLoopActive = $false }
-                if ($char -eq '3') { $selectedActionItemIndex = 2; $actionToExecute = $actionMenuItems[2]; $actionLoopActive = $false }
+            Write-Host "Acties voor $($MessagesToProcess.Count) geselecteerde e-mail(s):"
+            Write-Host "-------------------------------------------"
+            for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
+                $itemText = $actionMenuItems[$i]
+                if ($i -eq $selectedActionItemIndex) {
+                    Write-Host "> $($itemText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                } else {
+                    Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
+                }
             }
-        }
-    } # Einde while ($actionLoopActive)
+            Write-Host "Gebruik ↑/↓, Enter, Esc" -ForegroundColor $cgaInstructionFgColor
+
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
+
+            switch ($keyInfo.VirtualKeyCode) {
+                38 { $selectedActionItemIndex = ($selectedActionItemIndex - 1 + $actionMenuItems.Count) % $actionMenuItems.Count }
+                40 { $selectedActionItemIndex = ($selectedActionItemIndex + 1) % $actionMenuItems.Count }
+                13 { $actionToExecute = $actionMenuItems[$selectedActionItemIndex]; $actionLoopActive = $false }
+                27 { $actionToExecute = "3. Terug (Esc)"; $actionLoopActive = $false }
+                default {
+                    $char = $keyInfo.Character.ToString()
+                    if ($char -eq '1') { $selectedActionItemIndex = 0; $actionToExecute = $actionMenuItems[0]; $actionLoopActive = $false }
+                    if ($char -eq '2') { $selectedActionItemIndex = 1; $actionToExecute = $actionMenuItems[1]; $actionLoopActive = $false }
+                    if ($char -eq '3') { $selectedActionItemIndex = 2; $actionToExecute = $actionMenuItems[2]; $actionLoopActive = $false }
+                }
+            }
+        } # Einde while ($actionLoopActive)
+    }
+
 
     if ($actionToExecute) {
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
@@ -979,12 +988,26 @@ function Perform-ActionOnMultipleEmails {
                 $processedCount = 0; $errorCount = 0
                 foreach ($message in $MessagesToProcess) {
                     $processedCount++
+                    # Bepaal de daadwerkelijke Message ID
+                    $effectiveMessageId = $null
+                    if ($message.PSObject.Properties['Id'] -and -not [string]::IsNullOrWhiteSpace($message.Id)) {
+                        $effectiveMessageId = $message.Id
+                    } elseif ($message.PSObject.Properties['MessageId'] -and -not [string]::IsNullOrWhiteSpace($message.MessageId)) {
+                        $effectiveMessageId = $message.MessageId
+                    }
+
+                    if ([string]::IsNullOrWhiteSpace($effectiveMessageId)) {
+                        Write-Warning "Kon Message ID niet vinden voor bericht met onderwerp '$($message.Subject)'. Overslaan."
+                        $errorCount++
+                        continue
+                    }
+
                     Write-Progress -Activity "Geselecteerde e-mails verwijderen" -Status "Verwijderen: $($message.Subject)" -PercentComplete (($processedCount / $MessagesToProcess.Count) * 100)
                     try {
-                        Remove-MgUserMessage -UserId $UserId -MessageId $message.MessageId -ErrorAction Stop
-                        Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $message.MessageId
+                        Remove-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -ErrorAction Stop
+                        Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                     } catch {
-                        Write-Warning "Fout bij verwijderen e-mail ID $($message.MessageId): $($_.Exception.Message)"
+                        Write-Warning "Fout bij verwijderen e-mail ID $effectiveMessageId: $($_.Exception.Message)"
                         $errorCount++
                     }
                 }
@@ -1004,12 +1027,26 @@ function Perform-ActionOnMultipleEmails {
                     $processedCount = 0; $errorCount = 0
                     foreach ($message in $MessagesToProcess) {
                         $processedCount++
+                        # Bepaal de daadwerkelijke Message ID
+                        $effectiveMessageId = $null
+                        if ($message.PSObject.Properties['Id'] -and -not [string]::IsNullOrWhiteSpace($message.Id)) {
+                            $effectiveMessageId = $message.Id
+                        } elseif ($message.PSObject.Properties['MessageId'] -and -not [string]::IsNullOrWhiteSpace($message.MessageId)) {
+                            $effectiveMessageId = $message.MessageId
+                        }
+
+                        if ([string]::IsNullOrWhiteSpace($effectiveMessageId)) {
+                            Write-Warning "Kon Message ID niet vinden voor bericht met onderwerp '$($message.Subject)'. Overslaan."
+                            $errorCount++
+                            continue
+                        }
+
                         Write-Progress -Activity "Geselecteerde e-mails verplaatsen" -Status "Verplaatsen: $($message.Subject)" -PercentComplete (($processedCount / $MessagesToProcess.Count) * 100)
                         try {
-                            Move-MgUserMessage -UserId $UserId -MessageId $message.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
-                            Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $message.MessageId
+                            Move-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                            Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                         } catch {
-                            Write-Warning "Fout bij verplaatsen e-mail ID $($message.MessageId): $($_.Exception.Message)"
+                            Write-Warning "Fout bij verplaatsen e-mail ID $effectiveMessageId: $($_.Exception.Message)"
                             $errorCount++
                         }
                     }
@@ -1127,10 +1164,27 @@ function Perform-ActionOnSingleEmail {
         [string]$DomainToUpdateCache # Aangepast van SenderEmailToUpdateCache
     )
     Clear-Host
+
+    # Bepaal de daadwerkelijke Message ID eigenschap
+    $effectiveMessageId = $null
+    if ($MessageObject.PSObject.Properties['Id'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.Id)) {
+        $effectiveMessageId = $MessageObject.Id
+    } elseif ($MessageObject.PSObject.Properties['MessageId'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.MessageId)) {
+        $effectiveMessageId = $MessageObject.MessageId
+    }
+
+    if ([string]::IsNullOrWhiteSpace($effectiveMessageId)) {
+        Write-Error "Kan Message ID niet vinden in het opgegeven berichtobject voor Perform-ActionOnSingleEmail."
+        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        $readKeyOptionsError = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        while ($Host.UI.RawUI.ReadKey($readKeyOptionsError).VirtualKeyCode -ne 27) {}
+        return
+    }
+
     Write-Host "Geselecteerde e-mail:"
     Write-Host "Onderwerp : $($MessageObject.Subject)"
     Write-Host "Ontvangen: $($MessageObject.ReceivedDateTime)"
-    Write-Host "ID        : $($MessageObject.MessageId)"
+    Write-Host "ID        : $effectiveMessageId"
     Write-Host "-------------------------------------------"
 
     # CGA Kleuren
@@ -1149,7 +1203,7 @@ function Perform-ActionOnSingleEmail {
     # Pre-laad details die constant blijven binnen de lus
     $emailSubjectDisplay = $MessageObject.Subject
     $emailReceivedDisplay = Get-Date $MessageObject.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss"
-    $emailIdDisplay = $MessageObject.MessageId
+    $emailIdDisplay = $effectiveMessageId # Gebruik de hierboven bepaalde ID
 
     while ($actionLoopActive) {
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor
@@ -1214,13 +1268,13 @@ function Perform-ActionOnSingleEmail {
             if ($actionToExecute -like "1. Verwijder*") {
                 if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail permanent wilt verwijderen?") {
                     try {
-                        Write-Host "Verwijderen van e-mail ID $($MessageObject.MessageId)..."
-                    Remove-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -ErrorAction Stop
+                        Write-Host "Verwijderen van e-mail ID $effectiveMessageId..."
+                    Remove-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -ErrorAction Stop
                     Write-Host "E-mail succesvol verwijderd van server."
                     # Update cache
-                    Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                    Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                 } catch {
-                        Write-Error "Fout bij het verwijderen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
+                        Write-Error "Fout bij het verwijderen van e-mail ID $effectiveMessageId: $($_.Exception.Message)"
                     }
                 } else { Write-Host "Verwijderen geannuleerd." }
                 # Read-Host "Druk op Enter om door te gaan." # Verwijderd
@@ -1230,13 +1284,13 @@ function Perform-ActionOnSingleEmail {
                     $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
                     if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'?") {
                         try {
-                            Write-Host "Verplaatsen van e-mail ID $($MessageObject.MessageId) naar '$($destinationFolder.DisplayName)'..."
-                            Move-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                            Write-Host "Verplaatsen van e-mail ID $effectiveMessageId naar '$($destinationFolder.DisplayName)'..."
+                            Move-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -DestinationId $destinationFolderId -ErrorAction Stop
                             Write-Host "E-mail succesvol verplaatst."
                         # Update cache
-                            Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                            Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $effectiveMessageId
                         } catch {
-                            Write-Error "Fout bij het verplaatsen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
+                            Write-Error "Fout bij het verplaatsen van e-mail ID $effectiveMessageId: $($_.Exception.Message)"
                         }
                     } else { Write-Host "Verplaatsen geannuleerd." }
                 } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
