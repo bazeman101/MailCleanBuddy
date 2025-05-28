@@ -739,18 +739,21 @@ function Show-RecentEmails {
     Write-Host "Ophalen van de laatste 100 e-mails..."
 
     try {
-        $recentMessages = Get-MgUserMessage -UserId $UserId -Top 100 -OrderBy "receivedDateTime desc" -Property "id,subject,sender,receivedDateTime,size,bodyPreview" -ErrorAction Stop
+        # Verwijder 'size' uit de properties om de "Could not find a property named 'size'" fout te voorkomen.
+        $recentMessages = Get-MgUserMessage -UserId $UserId -Top 100 -OrderBy "receivedDateTime desc" -Property "id,subject,sender,receivedDateTime,bodyPreview" -ErrorAction Stop
     } catch {
         Write-Error "Fout bij het ophalen van recente e-mails: $($_.Exception.Message)"
         Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-        while ($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho).VirtualKeyCode -ne 27) {}
+        $readKeyOptionsCatch = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        while ($Host.UI.RawUI.ReadKey($readKeyOptionsCatch).VirtualKeyCode -ne 27) {}
         return
     }
 
     if (-not $recentMessages -or $recentMessages.Count -eq 0) {
         Write-Host "Geen recente e-mails gevonden." -ForegroundColor $cgaInstructionFgColor
         Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-        while ($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho).VirtualKeyCode -ne 27) {}
+        $readKeyOptionsNoMessages = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        while ($Host.UI.RawUI.ReadKey($readKeyOptionsNoMessages).VirtualKeyCode -ne 27) {}
         return
     }
 
