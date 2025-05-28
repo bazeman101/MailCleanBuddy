@@ -505,16 +505,30 @@ function Show-EmailActionsMenu {
                 }
             }
             "3" {
-                Write-Host "Bekijk volledige body (Nog niet geïmplementeerd)" 
-                # TODO: Implement full body view, consider $message.Body.ContentType (HTML/Text)
+                Clear-Host
+                Write-Host "Volledige body van e-mail (Onderwerp: $($message.Subject)):"
+                Write-Host "----------------------------------------------------"
+                if ($message.Body.ContentType -eq "html") {
+                    Write-Warning "De body is in HTML-formaat. HTML-tags worden als platte tekst weergegeven."
+                    # Voor een echte HTML-weergave zou een browser of een HTML-rendering component nodig zijn.
+                    # Hier tonen we de ruwe HTML of de tekst-equivalent als die beschikbaar is.
+                }
+                Write-Host $message.Body.Content
+                Write-Host "----------------------------------------------------"
+                Read-Host "Druk op Enter om terug te keren naar het actiemenu"
+                # Roep Show-EmailActionsMenu opnieuw aan om terug te keren naar het menu voor dezelfde e-mail
+                Show-EmailActionsMenu -UserId $UserId -MessageId $MessageId
+                return # Voorkom dubbele Read-Host aan het einde van de parent functie
             }
             "4" {
                 if ($message.HasAttachments) {
-                    Write-Host "Download bijlagen (Nog niet geïmplementeerd)"
-                    # TODO: Implement attachment download
+                    Download-MessageAttachments -UserId $UserId -MessageId $MessageId
                 } else {
                     Write-Host "Deze e-mail heeft geen bijlagen."
                 }
+                # Roep Show-EmailActionsMenu opnieuw aan om terug te keren naar het menu voor dezelfde e-mail
+                Show-EmailActionsMenu -UserId $UserId -MessageId $MessageId
+                return # Voorkom dubbele Read-Host aan het einde van de parent functie
             }
             "5" { 
                 # Terugkeren gebeurt automatisch na de switch als er geen 'return' is in Search-Mail
@@ -531,6 +545,121 @@ function Show-EmailActionsMenu {
         }
     }
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu (of vorige menu indien van toepassing)"
+}
+
+function Ensure-DownloadPath {
+    param (
+        [string]$Path
+    )
+    if (-not (Test-Path -Path $Path)) {
+        Write-Host "Aanmaken downloadmap: $Path"
+        try {
+            New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null
+        } catch {
+            Write-Error "Kon downloadmap '$Path' niet aanmaken: $($_.Exception.Message)"
+            return $false
+        }
+    }
+    return $true
+}
+
+function Download-MessageAttachments {
+    param(
+        [string]$UserId,
+        [string]$MessageId
+    )
+    Clear-Host
+    Write-Host "Bijlagen voor e-mail ID: $MessageId"
+    Write-Host "-------------------------------------"
+    
+    try {
+        $attachments = Get-MgUserMessageAttachment -UserId $UserId -MessageId $MessageId -ErrorAction Stop
+        if ($null -eq $attachments -or $attachments.Count -eq 0) {
+            Write-Warning "Geen bijlagen gevonden voor deze e-mail (ook al gaf HasAttachments 'true' aan)."
+            Read-Host "Druk op Enter om terug te keren"
+            return
+        }
+
+        $attachmentOptions = @{}
+        $i = 1
+        Write-Host "Beschikbare bijlagen:"
+        foreach ($attachment in $attachments) {
+            Write-Host "$i. $($attachment.Name) ($($attachment.Size) bytes, Type: $($attachment.ContentType))"
+            $attachmentOptions[$i] = $attachment
+            $i++
+        }
+        Write-Host "-------------------------------------"
+        Write-Host "A. Download alle bijlagen"
+        Write-Host "C. Annuleren"
+
+        $choice = Read-Host "Kies een bijlage om te downloaden (nummer), A voor alles, of C om te annuleren"
+
+        if ($choice -eq 'C' -or $choice -eq 'c') {
+            Write-Host "Downloaden geannuleerd."
+            return
+        }
+
+        $defaultDownloadPath = Join-Path -Path $PSScriptRoot -ChildPath "_downloads"
+        $downloadPath = Read-Host "Voer het pad in voor de downloads (standaard: $defaultDownloadPath)"
+        if ([string]::IsNullOrWhiteSpace($downloadPath)) {
+            $downloadPath = $defaultDownloadPath
+        }
+
+        if (-not (Ensure-DownloadPath -Path $downloadPath)) {
+            Read-Host "Druk op Enter om terug te keren"
+            return
+        }
+        
+        $attachmentsToDownload = New-Object System.Collections.Generic.List[object]
+        if ($choice -eq 'A' -or $choice -eq 'a') {
+            $attachments | ForEach-Object { $attachmentsToDownload.Add($_) }
+        } elseif ($attachmentOptions.ContainsKey($choice)) {
+            $attachmentsToDownload.Add($attachmentOptions[$choice])
+        } else {
+            Write-Warning "Ongeldige keuze."
+            Read-Host "Druk op Enter om terug te keren"
+            return
+        }
+
+        foreach ($attachment in $attachmentsToDownload) {
+            $fileName = $attachment.Name
+            # Sanitize filename (basic example, might need more robust sanitization)
+            $invalidChars = [System.IO.Path]::GetInvalidFileNameChars()
+            $regexInvalidChars = "[{0}]" -f ([regex]::Escape(-join $invalidChars))
+            $safeFileName = $fileName -replace $regexInvalidChars, '_'
+            
+            $filePath = Join-Path -Path $downloadPath -ChildPath $safeFileName
+            $counter = 1
+            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($safeFileName)
+            $extension = [System.IO.Path]::GetExtension($safeFileName)
+            
+            while (Test-Path $filePath) {
+                $newFileName = "{0}_{1}{2}" -f $baseName, $counter, $extension
+                $filePath = Join-Path -Path $downloadPath -ChildPath $newFileName
+                $counter++
+            }
+
+            Write-Host "Downloaden van '$($attachment.Name)' naar '$filePath'..."
+            try {
+                # Gebruik Invoke-MgGraphRequest om de raw content van de bijlage te krijgen
+                $attachmentValueUri = "/users/$UserId/messages/$MessageId/attachments/$($attachment.Id)/`$value"
+                $attachmentContent = Invoke-MgGraphRequest -Method GET -Uri $attachmentValueUri -ErrorAction Stop
+                
+                if ($attachmentContent) {
+                    [System.IO.File]::WriteAllBytes($filePath, $attachmentContent)
+                    Write-Host "Bijlage '$($attachment.Name)' succesvol opgeslagen als '$filePath'."
+                } else {
+                    Write-Warning "Invoke-MgGraphRequest gaf geen content terug voor bijlage '$($attachment.Name)'. Overslaan."
+                }
+            } catch {
+                Write-Warning "Fout bij downloaden of opslaan van bijlage '$($attachment.Name)': $($_.Exception.Message)"
+            }
+        }
+
+    } catch {
+        Write-Error "Fout bij het ophalen of downloaden van bijlagen: $($_.Exception.Message)"
+    }
+    Read-Host "Druk op Enter om terug te keren"
 }
 
 function Empty-DeletedItemsFolder {
