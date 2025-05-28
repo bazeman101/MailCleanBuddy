@@ -422,11 +422,12 @@ function Show-EmailsFromSelectedSender {
         # Voor nu gaan we ervan uit dat de aanroepende functie (Show-SenderOverview) de kleuren beheert.
         Clear-Host 
         $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
-        $messagesFromSender = $cachedSenderEntry.Messages | Sort-Object ReceivedDateTime -Descending
+        $messagesFromDomain = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending # Berichten zijn al van dit domein
         
-        Write-Host "E-mails van: $($cachedSenderEntry.Name) <$senderEmail>"
-        Write-Host "Aantal in cache: $($cachedSenderEntry.Count)"
+        Write-Host "E-mails van domein: $($cachedDomainEntry.Name)" # .Name is nu het domein
+        Write-Host "Aantal in cache voor dit domein: $($cachedDomainEntry.Count)" # Aantal van het domein
         Write-Host "-------------------------------------------------------------------------------------------------------------------"
+        # De header kan hetzelfde blijven, maar de context is nu "alle e-mails van dit domein"
         Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f "#", "Onderwerp", "Ontvangen Op", "Grootte (Bytes)")
         Write-Host "-------------------------------------------------------------------------------------------------------------------"
 
