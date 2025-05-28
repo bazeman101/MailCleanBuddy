@@ -1042,10 +1042,26 @@ function Show-EmailBody {
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
 
+    # Bepaal de daadwerkelijke Message ID eigenschap
+    $effectiveMessageId = $null
+    if ($MessageObject.PSObject.Properties['Id'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.Id)) {
+        $effectiveMessageId = $MessageObject.Id
+    } elseif ($MessageObject.PSObject.Properties['MessageId'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.MessageId)) {
+        $effectiveMessageId = $MessageObject.MessageId
+    }
+
+    if ([string]::IsNullOrWhiteSpace($effectiveMessageId)) {
+        Write-Error "Kan Message ID niet vinden in het opgegeven berichtobject."
+        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        $readKeyOptionsError = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        while ($Host.UI.RawUI.ReadKey($readKeyOptionsError).VirtualKeyCode -ne 27) {}
+        return
+    }
+
     Write-Host "Volledige body van e-mail:"
     Write-Host "Onderwerp    : $($MessageObject.Subject)"
     Write-Host "Ontvangen op : $(Get-Date $MessageObject.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss")"
-    Write-Host "ID           : $($MessageObject.MessageId)"
+    Write-Host "ID           : $effectiveMessageId" # Gebruik de gevonden ID
     Write-Host "----------------------------------------------------"
 
     # Haal de volledige body op als die nog niet in $MessageObject zit (bijv. als het uit de cache komt zonder body)
@@ -1064,7 +1080,7 @@ function Show-EmailBody {
         # Probeer de volledige body op te halen als deze ontbreekt of als we alleen een preview hadden
         Write-Host "Ophalen van volledige body van server..."
         try {
-            $fullMessage = Get-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -Property "body" -ErrorAction Stop
+            $fullMessage = Get-MgUserMessage -UserId $UserId -MessageId $effectiveMessageId -Property "body" -ErrorAction Stop # Gebruik de gevonden ID
             if ($fullMessage -and $fullMessage.Body) {
                 $bodyContent = $fullMessage.Body.Content
                 $contentType = $fullMessage.Body.ContentType
