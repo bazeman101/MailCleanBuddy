@@ -23,8 +23,17 @@ param (
     [string]$MailboxEmail,
 
     [Parameter(Mandatory = $false)]
-    [switch]$TestRun
+    [switch]$TestRun,
+
+    [Parameter(Mandatory = $false)]
+    [int]$MaxEmailsToIndex = 0 # Nieuwe parameter om het max aantal te indexeren mails te specificeren
 )
+<#
+.PARAMETER MaxEmailsToIndex
+    Specificeert het maximale aantal nieuwste e-mails dat moet worden geïndexeerd.
+    Als deze waarde groter is dan 0, overschrijft dit de -TestRun switch voor het aantal te indexeren mails.
+    Standaard (0) wordt de -TestRun logica (100 mails) of een volledige indexering (alle mails) gebruikt.
+#>
 
 # Script-level cache for sender information
 $Script:SenderCache = $null 
@@ -106,56 +115,60 @@ function Index-Mailbox {
     param($UserId)
     
     Write-Host "Starten met indexeren van mailbox voor $UserId..."
-    if ($TestRun.IsPresent) {
+    if ($MaxEmailsToIndex -gt 0) {
+        Write-Warning "** MaxEmailsToIndex ACTIEF: Maximaal de laatste $MaxEmailsToIndex e-mails worden geïndexeerd. **"
+    } elseif ($TestRun.IsPresent) {
         Write-Warning "** TESTMODUS ACTIEF: Alleen de laatste 100 e-mails worden geïndexeerd. **"
-    }
+    } # Anders, volledige indexering (geen specifieke waarschuwing hier nodig)
+
     $Script:SenderCache = @{} # Reset of initialiseer de cache
 
     try {
-        Write-Host "Ophalen van berichten..."
         $baseMessageProperties = "id", "subject", "sender", "receivedDateTime", "toRecipients", "categories"
-        $sizeProperty = "Size" # De eigenschap die mogelijk problemen veroorzaakt
-        
+        $sizeProperty = "Size" 
         $messages = $null
-        $sizePropertySuccessfullyUsed = $true # Standaard aanname
+        $sizePropertySuccessfullyUsed = $true
+
+        # Bouw de parameters voor Get-MgUserMessage
+        $getMgUserMessageParams = @{
+            UserId      = $UserId
+            ErrorAction = "Stop"
+        }
+
+        if ($MaxEmailsToIndex -gt 0) {
+            $getMgUserMessageParams.Top = $MaxEmailsToIndex
+            $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
+            Write-Host "Configuratie: Ophalen van de laatste $MaxEmailsToIndex berichten."
+        } elseif ($TestRun.IsPresent) {
+            $getMgUserMessageParams.Top = 100
+            $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
+            Write-Host "Configuratie: Ophalen van de laatste 100 berichten (Testmodus)."
+        } else {
+            $getMgUserMessageParams.All = $true
+            Write-Host "Configuratie: Ophalen van alle berichten (Volledige modus). Dit kan enige tijd duren."
+        }
 
         try {
-            # Poging 1: Berichten ophalen inclusief de 'Size' eigenschap
             $currentMessageProperties = $baseMessageProperties + $sizeProperty
+            $getMgUserMessageParams.Property = $currentMessageProperties
             Write-Host "Poging 1: Berichten ophalen inclusief '$sizeProperty' eigenschap..."
-            if ($TestRun.IsPresent) {
-                $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property $currentMessageProperties -OrderBy "receivedDateTime desc" -ErrorAction Stop
-                Write-Host "(Testmodus: max 100 berichten opgehaald met '$sizeProperty')"
-            } else {
-                Write-Host "(Volledige modus met '$sizeProperty': dit kan even duren voor grote mailboxen)..."
-                $messages = Get-MgUserMessage -UserId $UserId -All -Property $currentMessageProperties -ErrorAction Stop
-            }
-            Write-Host "Berichten succesvol opgehaald inclusief '$sizeProperty'."
+            $messages = Get-MgUserMessage @getMgUserMessageParams
+            Write-Host "Berichten succesvol opgehaald met '$sizeProperty' eigenschap."
         }
         catch {
-            # Controleer of de specifieke fout met betrekking tot 'size' is opgetreden
             $errorMessage = $_.Exception.Message
-            if ($_.Exception.InnerException) {
-                $errorMessage = $_.Exception.InnerException.Message
-            }
+            if ($_.Exception.InnerException) { $errorMessage = $_.Exception.InnerException.Message }
 
             if ($errorMessage -like "*Could not find a property named 'size' on type 'Microsoft.OutlookServices.Message'*") {
                 Write-Warning "Fout bij ophalen berichten met eigenschap '$sizeProperty': $errorMessage"
                 Write-Host "Poging 2: Berichten ophalen ZONDER '$sizeProperty' eigenschap..."
                 $sizePropertySuccessfullyUsed = $false
                 
-                # Poging 2: Berichten ophalen ZONDER de 'Size' eigenschap
-                if ($TestRun.IsPresent) {
-                    $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property $baseMessageProperties -OrderBy "receivedDateTime desc" -ErrorAction Stop
-                    Write-Host "(Testmodus: max 100 berichten opgehaald zonder '$sizeProperty')"
-                } else {
-                    Write-Host "(Volledige modus zonder '$sizeProperty': dit kan even duren voor grote mailboxen)..."
-                    $messages = Get-MgUserMessage -UserId $UserId -All -Property $baseMessageProperties -ErrorAction Stop
-                }
+                $getMgUserMessageParams.Property = $baseMessageProperties # Gebruik nu basis properties
+                $messages = Get-MgUserMessage @getMgUserMessageParams
                 Write-Host "Berichten succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken of leeg zijn."
             }
             else {
-                # Een andere, onverwachte fout is opgetreden, gooi deze opnieuw om door de buitenste catch te worden afgehandeld
                 throw $_ 
             }
         }
