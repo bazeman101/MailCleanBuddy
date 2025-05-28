@@ -371,7 +371,10 @@ function Get-MailFolderSelection {
 }
 
 function Search-Mail {
-    param($UserId)
+    param(
+        [string]$UserId,
+        [switch]$IsTestRun # Nieuwe parameter
+    )
     Clear-Host
     Write-Host "Zoek naar e-mails in mailbox: $UserId"
     Write-Host "---------------------------------------"
@@ -388,7 +391,21 @@ function Search-Mail {
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
         # We selecteren specifieke properties voor een snellere en relevantere output.
-        $foundMessages = Get-MgUserMessage -UserId $UserId -Search $searchTerm -Top 100 -Property "subject,from,receivedDateTime,hasAttachments" -ErrorAction Stop
+        
+        $getMgUserMessageParams = @{
+            UserId = $UserId
+            Search = $searchTerm
+            Top = 100 # Beperk het aantal resultaten
+            Property = "subject,from,receivedDateTime,hasAttachments"
+            ErrorAction = "Stop"
+        }
+
+        if ($IsTestRun.IsPresent) {
+            $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
+            Write-Host "(Testmodus actief: resultaten gesorteerd op nieuwste eerst)"
+        }
+
+        $foundMessages = Get-MgUserMessage @getMgUserMessageParams
         
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
             Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
@@ -715,17 +732,8 @@ function Empty-DeletedItemsFolder {
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
-function Write-CenteredLine {
-    param(
-        [string]$Text,
-        [int]$TotalWidth,
-        [string]$ForegroundColor = "White",
-        [string]$BackgroundColor = "DarkBlue"
-    )
-    $paddingLength = [Math]::Max(0, ($TotalWidth - $Text.Length) / 2)
-    $padding = " " * $paddingLength
-    Write-Host "$padding$Text" -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
-}
+# Write-CenteredLine is niet meer nodig voor de nieuwe menu-uitlijning.
+# De logica wordt direct in Show-MainMenu afgehandeld.
 
 function Show-MainMenu {
     param (
@@ -777,42 +785,54 @@ function Show-MainMenu {
     1..$topPaddingLines | ForEach-Object { Write-Host "" -BackgroundColor $menuBackgroundColor }
 
     # Teken het menu
+    $innerFramePadding = "  " # Twee spaties links en rechts binnen het kader
     foreach ($lineText in $menuContent) {
-        $paddedLine = (" " * (($frameWidth - $lineText.Length) / 2)) + $lineText
-        $paddedLine = $paddedLine.PadRight($frameWidth) # Zorg dat alle regels even lang zijn voor de achtergrondkleur
-        Write-Host "$leftPadding$paddedLine" -ForegroundColor $menuForegroundColor -BackgroundColor $menuBackgroundColor
+        $lineContentToShow = ($innerFramePadding + $lineText).PadRight($frameWidth - $innerFramePadding.Length) + $innerFramePadding
+        # Zorg ervoor dat de totale lijn de $frameWidth heeft voor een solide achtergrond
+        $lineContentToShow = $lineContentToShow.PadRight($frameWidth) 
+        Write-Host "$leftPadding$lineContentToShow" -ForegroundColor $menuForegroundColor -BackgroundColor $menuBackgroundColor
     }
     
     # Prompt
     $promptText = "Kies een optie: "
-    $fullPromptLine = $leftPadding + (" " * (($frameWidth - $promptText.Length) / 2)) + $promptText
+    # Lege regel voor de prompt, binnen het kader
+    Write-Host ($leftPadding + $innerFramePadding + (" " * $menuWidth) + $innerFramePadding).PadRight($leftPaddingSpaces + $frameWidth) -BackgroundColor $menuBackgroundColor
     
-    # Zet cursor op de juiste plek voor Read-Host en herstel kleuren voor de input zelf
-    $Host.UI.RawUI.ForegroundColor = $promptForegroundColor
-    $Host.UI.RawUI.BackgroundColor = $menuBackgroundColor # Achtergrond blijft blauw voor de prompt
-    
-    # Lege regel voor de prompt
-    Write-Host "$leftPadding$(' ' * $frameWidth)" -BackgroundColor $menuBackgroundColor
-    
-    # We moeten de cursorpositie instellen voor Read-Host
-    $currentCursorPos = $Host.UI.RawUI.CursorPosition
-    $Host.UI.RawUI.CursorPosition = @{
-        X = ($leftPadding + (" " * (($frameWidth - $promptText.Length) / 2))).Length
-        Y = $currentCursorPos.Y 
-    }
-    
-    $choice = Read-Host -Prompt $promptText
-
-    # Herstel originele kleuren
+    # Herstel kleuren VOORDAT Read-Host wordt aangeroepen, zodat de input en subfuncties normale kleuren hebben
     $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
     $Host.UI.RawUI.BackgroundColor = $originalBackgroundColor
-    # Clear-Host # Optioneel: clear scherm na menu keuze, of laat het staan. Voor nu laten we het staan.
+    # Clear-Host # Optioneel: clear scherm na menu keuze. Voor nu niet, zodat het menu zichtbaar blijft bij de prompt.
+    # Echter, de achtergrond van de console is nu hersteld. Om de "blauwe box" look te behouden voor de prompt regel:
+    # Print de prompt regel opnieuw met de blauwe achtergrond maar gele tekst voor de prompt zelf.
+    
+    $currentCursorPos = $Host.UI.RawUI.CursorPosition # Onthoud cursor Y
+    $promptLineY = $currentCursorPos.Y 
+    
+    # Print de prompt-regel met de juiste achtergrond en stel de cursor in
+    $promptDisplayLine = $leftPadding + $innerFramePadding + $promptText
+    Write-Host $promptDisplayLine -NoNewline -ForegroundColor $promptForegroundColor -BackgroundColor $menuBackgroundColor
+    
+    # Vul de rest van de lijn met de menu achtergrondkleur
+    $remainingSpace = $frameWidth - ($innerFramePadding.Length + $promptText.Length + $innerFramePadding.Length)
+    if ($remainingSpace -gt 0) {
+        Write-Host (" " * $remainingSpace) -NoNewline -BackgroundColor $menuBackgroundColor
+    }
+    Write-Host $innerFramePadding.PadRight($innerFramePadding.Length) -BackgroundColor $menuBackgroundColor # Rechter padding van het frame
+
+    # $Host.UI.RawUI.CursorPosition moet na de Write-Host -NoNewline zijn
+    $Host.UI.RawUI.CursorPosition = @{ X = $promptDisplayLine.Length; Y = $promptLineY }
+
+    $choice = Read-Host
+
+    # Kleuren zijn al hersteld.
+    # Clear-Host hier als je wilt dat het menu verdwijnt na de keuze.
+    # Clear-Host 
 
     switch ($choice) {
         "1" { Index-Mailbox -UserId $UserEmail }
         "2" { Show-SenderOverview -UserId $UserEmail }
         "3" { Manage-EmailsBySender -UserId $UserEmail }
-        "4" { Search-Mail -UserId $UserEmail }
+        "4" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent } # $TestRun.IsPresent doorgeven
         "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
         "Q" { Write-Host "Afsluiten..."; return $false } # Signal to exit loop
         default {
