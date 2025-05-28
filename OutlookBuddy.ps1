@@ -234,12 +234,127 @@ function Move-MailsFromSender {
         [string]$UserId,
         [string]$SenderEmail
     )
-    Write-Host "Functie 'Move-MailsFromSender' voor $SenderEmail (Nog niet geïmplementeerd)"
-    # TODO: Implement logic to find emails from the specified sender
-    # TODO: Prompt user for destination folder
-    # TODO: Move emails to the destination folder
-    # Vereist Mail.ReadWrite permissie
-    # Voorbeeld: Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" | Move-MgUserMessage -DestinationId 'destinationFolderId'
+    Clear-Host
+    Write-Host "Verplaatsen van e-mails van: $SenderEmail"
+    Write-Host "--------------------------------------------"
+
+    # Stap 1: Selecteer doelmap
+    $destinationFolderId = Get-MailFolderSelection -UserId $UserId
+    if (-not $destinationFolderId) {
+        Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)."
+        return
+    }
+
+    $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
+    Write-Host "Geselecteerde doelmap: $($destinationFolder.DisplayName)"
+    Write-Host ""
+
+    $confirmation = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE e-mails van '$SenderEmail' wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
+    if ($confirmation -ne 'ja') {
+        Write-Host "Verplaatsen geannuleerd."
+        return
+    }
+
+    try {
+        Write-Host "Zoeken naar e-mails van '$SenderEmail'..."
+        $messagesToMove = Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" -All -ErrorAction Stop
+        
+        if ($null -eq $messagesToMove -or $messagesToMove.Count -eq 0) {
+            Write-Host "Geen e-mails gevonden van '$SenderEmail'."
+            return
+        }
+
+        $count = $messagesToMove.Count
+        Write-Host "$count e-mail(s) gevonden van '$SenderEmail'. Starten met verplaatsen naar '$($destinationFolder.DisplayName)'..."
+        
+        $movedCount = 0
+        $errorCount = 0
+
+        foreach ($message in $messagesToMove) {
+            try {
+                Write-Progress -Activity "E-mails verplaatsen" -Status "Verplaatsen: $($message.Subject) naar $($destinationFolder.DisplayName)" -PercentComplete (($movedCount / $count) * 100)
+                Move-MgUserMessage -UserId $UserId -MessageId $message.Id -DestinationId $destinationFolderId -ErrorAction Stop
+                $movedCount++
+            } catch {
+                Write-Warning "Fout bij het verplaatsen van e-mail met ID $($message.Id) (Onderwerp: $($message.Subject)): $($_.Exception.Message)"
+                $errorCount++
+            }
+        }
+        Write-Progress -Activity "E-mails verplaatsen" -Completed
+
+        Write-Host "Verplaatsen voltooid."
+        Write-Host "$movedCount e-mail(s) succesvol verplaatst naar '$($destinationFolder.DisplayName)'."
+        if ($errorCount -gt 0) {
+            Write-Warning "$errorCount e-mail(s) konden niet worden verplaatst."
+        }
+
+        Write-Warning "De lokale cache is mogelijk niet meer accuraat. Het wordt aanbevolen de mailbox opnieuw te indexeren."
+
+    } catch {
+        Write-Error "Fout tijdens het zoeken of verplaatsen van e-mails: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
+}
+
+function Get-MailFolderSelection {
+    param (
+        [string]$UserId
+    )
+    Clear-Host
+    Write-Host "Selecteer een doelmap:"
+    Write-Host "-----------------------"
+    try {
+        # Haal alle mappen op, inclusief submappen (standaard gedrag van Get-MgUserMailFolder -All)
+        # Sorteer op DisplayName voor consistentie
+        $mailFolders = Get-MgUserMailFolder -UserId $UserId -All -ErrorAction Stop | Sort-Object DisplayName
+        
+        if ($null -eq $mailFolders -or $mailFolders.Count -eq 0) {
+            Write-Warning "Geen mailmappen gevonden voor gebruiker $UserId."
+            return $null
+        }
+
+        $folderOptions = @{}
+        $i = 1
+        Write-Host "Beschikbare mappen:"
+        foreach ($folder in $mailFolders) {
+            # Toon pad voor submappen voor duidelijkheid
+            $displayPath = $folder.DisplayName
+            $currentParentId = $folder.ParentFolderId
+            $tempFolder = $folder # Om de originele folder niet te wijzigen
+            while ($currentParentId) {
+                $parentFolder = $mailFolders | Where-Object {$_.Id -eq $currentParentId} | Select-Object -First 1
+                if ($parentFolder) {
+                    $displayPath = "$($parentFolder.DisplayName) / $displayPath"
+                    $currentParentId = $parentFolder.ParentFolderId
+                } else {
+                    $currentParentId = $null # Voorkom oneindige loop als ouder niet in de lijst staat
+                }
+            }
+
+            Write-Host "$i. $displayPath (ID: $($folder.Id))"
+            $folderOptions[$i] = $folder.Id
+            $i++
+        }
+        Write-Host "-----------------------"
+        Write-Host "C. Annuleren"
+
+        while ($true) {
+            $choice = Read-Host "Kies een mapnummer (of C om te annuleren)"
+            if ($choice -eq 'C' -or $choice -eq 'c') {
+                return $null
+            }
+            if ($folderOptions.ContainsKey($choice)) {
+                return $folderOptions[$choice]
+            } else {
+                Write-Warning "Ongeldige keuze. Probeer opnieuw."
+            }
+        }
+    } catch {
+        Write-Error "Fout bij het ophalen van mailmappen: $($_.Exception.Message)"
+        return $null
+    }
 }
 
 function Search-Mail {
