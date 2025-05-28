@@ -41,15 +41,18 @@ function Index-Mailbox {
 
     try {
         Write-Host "Ophalen van berichten..."
+        # Definieer de eigenschappen die we willen ophalen voor elke e-mail
+        $messageProperties = "id", "subject", "sender", "receivedDateTime", "size", "toRecipients", "categories"
+
         if ($TestRun.IsPresent) {
             # Haal de laatste 100 berichten op, gesorteerd op ontvangstdatum (nieuwste eerst)
-            $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property "sender" -OrderBy "receivedDateTime desc" -ErrorAction Stop
+            $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property $messageProperties -OrderBy "receivedDateTime desc" -ErrorAction Stop
             Write-Host "(Testmodus: max 100 berichten opgehaald)"
         } else {
             Write-Host "(Volledige modus: dit kan even duren voor grote mailboxen)..."
-            # Haal alleen de 'sender' eigenschap op voor efficiëntie
+            # Haal de gedefinieerde eigenschappen op voor alle berichten
             # De -All parameter zorgt ervoor dat alle berichten worden opgehaald, ongeacht paginering
-            $messages = Get-MgUserMessage -UserId $UserId -All -Property "sender" -ErrorAction Stop
+            $messages = Get-MgUserMessage -UserId $UserId -All -Property $messageProperties -ErrorAction Stop
         }
         
         if ($null -eq $messages -or $messages.Count -eq 0) {
@@ -76,14 +79,27 @@ function Index-Mailbox {
             if ($sender -and $sender.Address) {
                 $senderAddress = $sender.Address.ToLowerInvariant() # Normaliseer e-mailadres
                 $senderName = $sender.Name
+
+                # Creëer een object met de details van het huidige bericht
+                $messageDetail = @{
+                    MessageId        = $message.Id
+                    Subject          = $message.Subject
+                    ReceivedDateTime = $message.ReceivedDateTime
+                    Size             = $message.Size
+                    ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
+                    Categories       = $message.Categories
+                }
                 
                 if ($Script:SenderCache.ContainsKey($senderAddress)) {
                     $Script:SenderCache[$senderAddress].Count++
+                    $Script:SenderCache[$senderAddress].Messages.Add($messageDetail)
                 } else {
                     $Script:SenderCache[$senderAddress] = @{
-                        Name  = $senderName
-                        Count = 1
+                        Name     = $senderName
+                        Count    = 1
+                        Messages = [System.Collections.Generic.List[PSObject]]::new() # Gebruik een .NET List voor betere prestaties bij toevoegen
                     }
+                    $Script:SenderCache[$senderAddress].Messages.Add($messageDetail)
                 }
             }
         }
