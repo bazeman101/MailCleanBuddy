@@ -175,10 +175,6 @@ function Index-Mailbox {
 function Show-SenderOverview {
     param($UserId)
 
-    # Sla huidige consolekleuren op (wordt hersteld door Show-MainMenu bij terugkeer)
-    # $originalForegroundColor = $Host.UI.RawUI.ForegroundColor
-    # $originalBackgroundColor = $Host.UI.RawUI.BackgroundColor
-
     # Definieer CGA-kleurenschema (consistent met Show-MainMenu)
     $cgaBgColor = [System.ConsoleColor]::Black
     $cgaFgColor = [System.ConsoleColor]::Green
@@ -186,7 +182,7 @@ function Show-SenderOverview {
     $cgaSelectedFgColor = [System.ConsoleColor]::Black
     $cgaInstructionFgColor = [System.ConsoleColor]::White
     $cgaWarningFgColor = [System.ConsoleColor]::Red
-    $cgaSpaceSelectedPrefixColor = [System.ConsoleColor]::Yellow # Hoewel niet gebruikt voor spatie, kan voor andere indicators
+    # $cgaSpaceSelectedPrefixColor = [System.ConsoleColor]::Yellow # Niet gebruikt in dit menu
 
     # Functie-specifieke variabelen voor UI
     $selectedItemIndex = 0 # Index in de $sortedDomains array
@@ -202,7 +198,7 @@ function Show-SenderOverview {
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
             Clear-Host
             Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
-            Write-Host "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen." -ForegroundColor $cgaWarningFgColor
+            Write-Host "De automatische indexering bij het starten is mogelijk mislukt of er zijn geen gegevens gevonden. Controleer eventuele foutmeldingen bij het opstarten of probeer het script opnieuw." -ForegroundColor $cgaWarningFgColor
             $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
             Write-Host "Druk op Escape of Q om terug te keren."
             while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
@@ -234,192 +230,108 @@ function Show-SenderOverview {
         # Zorg ervoor dat selectie en view binnen grenzen blijven na data herladen
         $selectedItemIndex = [Math]::Max(0, [Math]::Min($selectedItemIndex, $sortedDomains.Count - 1))
         $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $sortedDomains.Count - $displayLines))
-        if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} # Gecorrigeerd: < naar -lt
-        if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex } # Gecorrigeerd: < naar -lt
-        if ($selectedItemIndex -ge ($topDisplayIndex + $displayLines)) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 } # Gecorrigeerd: >= naar -ge (en haakjes voor duidelijkheid)
+        if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
+        if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex } 
+        if ($selectedItemIndex -ge ($topDisplayIndex + $displayLines)) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 } 
 
 
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
-        Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
-        Write-Host "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen." -ForegroundColor $cgaWarningFgColor
-        $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
-        Write-Host "Druk op Escape of Q om terug te keren." # Aangepast van Read-Host
-        while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
-        # Kleuren worden hersteld door Show-MainMenu
-        return
-    }
 
-    # Converteer de hashtable (nu met domeinen als keys) naar een array voor sortering en weergave
-    $domainList = @()
-    foreach ($domainKey in $Script:SenderCache.Keys) {
-        $domainList += [PSCustomObject]@{
-            Domain = $domainKey # De key is het domein
-            Name   = $Script:SenderCache[$domainKey].Name # Dit is ook het domein
-            Count  = $Script:SenderCache[$domainKey].Count
-        }
-    }
-
-    $sortedDomains = $domainList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Domain
-
-    if ($sortedDomains.Count -eq 0) {
-        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-        Clear-Host
-        Write-Host "Geen domeinen gevonden in de cache."
-        $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
-        Write-Host "Druk op Escape of Q om terug te keren." # Aangepast van Read-Host
-        while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
-        return
-    }
-    
-    $selectedItemIndex = 0
-    $menuLoopActive = $true
-
-    while ($menuLoopActive) {
-        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-        Clear-Host
-
-        $title = "Overzicht van afzenderdomeinen voor $UserId"
-        $separator = "--------------------------------------------------------------------" # Aangepaste breedte
-        $instructionText = "Gebruik ↑/↓, Enter om te kiezen, Esc of Q om terug te keren." # T vervangen door Q
+        $title = "Overzicht van afzenderdomeinen (Scrollen: PgUp/PgDn/↑/↓, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)"
+        $headerLine = "{0,-5} {1,-7} {2,-50}" -f " ", "Aantal", "Domein" # Indicator kolom leeg voor nu
+        $separator = "-" * ($Host.UI.RawUI.WindowSize.Width -1)
         
-        # Bereken dynamische breedte en padding
-        $tempMenuContentForWidth = @($title) + @($separator)
-        foreach ($domainEntry in $sortedDomains) {
-            # Formatteer hoe het item eruit zal zien voor breedteberekening
-            $tempMenuContentForWidth += ("{0,-7} {1,-50}" -f $domainEntry.Count, $domainEntry.Domain)
-        }
-        $tempMenuContentForWidth += $instructionText
-        
-        $menuWidth = 0
-        foreach ($line in $tempMenuContentForWidth) {
-            if ($line.Length -gt $menuWidth) { $menuWidth = $line.Length }
-        }
-        # Voeg een beetje extra toe aan de menuWidth voor de # kolom en selectie
-        $menuWidth += 7 # Ruimte voor "#. " en wat speling
-        $frameWidth = $menuWidth + 4 
-        $consoleWidth = $Host.UI.RawUI.WindowSize.Width
-        $leftPaddingSpaces = [Math]::Max(0, ($consoleWidth - $frameWidth) / 2)
-        $leftPadding = " " * $leftPaddingSpaces
-        $innerFramePadding = "  "
+        Write-Host $title -ForegroundColor $cgaInstructionFgColor
+        Write-Host $headerLine
+        Write-Host $separator
 
-        # Verticale padding
-        1..3 | ForEach-Object { Write-Host "" }
+        # Bepaal welke domeinen te tonen (voor paginering)
+        $endDisplayIndex = [Math]::Min(($topDisplayIndex + $displayLines - 1), ($sortedDomains.Count - 1))
 
-        # Teken titel en header
-        Write-Host ($leftPadding + $innerFramePadding + $title.PadRight($menuWidth) + $innerFramePadding)
-        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
-        $header = "{0,-5} {1,-7} {2,-50}" -f "#", "Aantal", "Domein" # Kolom voor selectienummer
-        Write-Host ($leftPadding + $innerFramePadding + $header.PadRight($menuWidth) + $innerFramePadding)
-        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
-
-        # Teken lijst van domeinen
-        for ($i = 0; $i -lt $sortedDomains.Count; $i++) {
+        for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
             $domainEntry = $sortedDomains[$i]
-            $itemNumber = $i + 1
-            $itemText = "{0,-5} {1,-7} {2,-50}" -f "$itemNumber.", $domainEntry.Count, $domainEntry.Domain
-            $lineContent = $innerFramePadding + $itemText.PadRight($menuWidth) + $innerFramePadding
             
-            if ($i -eq $selectedItemIndex) {
-                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
-            } else {
-                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaFgColor -BackgroundColor $cgaBgColor
+            $indicator = " " # Ruimte voor de ">" indicator
+            $currentLineFgColor = $cgaFgColor
+            $currentLineBgColor = $cgaBgColor
+
+            if ($i -eq $selectedItemIndex) { # Huidig gehighlighte item
+                $currentLineFgColor = $cgaSelectedFgColor
+                $currentLineBgColor = $cgaSelectedBgColor
+                $indicator = ">"
             }
+            
+            $itemText = "{0,-5} {1,-7} {2,-50}" -f $indicator, $domainEntry.Count, $domainEntry.Domain
+            Write-Host $itemText -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
         }
         
-        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
-        Write-Host ($leftPadding + $innerFramePadding + $instructionText.PadRight($menuWidth) + $innerFramePadding) -ForegroundColor $cgaInstructionFgColor
+        Write-Host $separator
+        Write-Host ("Getoond: {0}-{1} van {2}" -f ($topDisplayIndex+1), ($endDisplayIndex+1), $sortedDomains.Count) -ForegroundColor $cgaInstructionFgColor
 
         # Wacht op toetsaanslag
         $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
         $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
-        $choiceToProcess = $null
 
         switch ($keyInfo.VirtualKeyCode) {
             38 { # UpArrow
-                $selectedItemIndex--
-                if ($selectedItemIndex -lt 0) { $selectedItemIndex = $sortedDomains.Count - 1 }
+                if ($selectedItemIndex -gt 0) { $selectedItemIndex-- } 
+                if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex } 
             }
             40 { # DownArrow
-                $selectedItemIndex++
-                if ($selectedItemIndex -ge $sortedDomains.Count) { $selectedItemIndex = 0 }
+                if ($selectedItemIndex -lt ($sortedDomains.Count - 1)) { $selectedItemIndex++ } 
+                if ($selectedItemIndex -gt $endDisplayIndex) { $topDisplayIndex++ } 
             }
-            13 { # Enter
-                $choiceToProcess = $selectedItemIndex # Gebruik index direct
+            33 { # PageUp
+                $selectedItemIndex = [Math]::Max(0, $selectedItemIndex - $displayLines)
+                $topDisplayIndex = [Math]::Max(0, $topDisplayIndex - $displayLines)
+                if ($selectedItemIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedItemIndex} 
             }
-            27 { # Escape
-                $menuLoopActive = $false # Stop de lus, keer terug naar hoofdmenu
+            34 { # PageDown
+                $selectedItemIndex = [Math]::Min(($sortedDomains.Count - 1), $selectedItemIndex + $displayLines)
+                $topDisplayIndex = [Math]::Min(($sortedDomains.Count - $displayLines), $topDisplayIndex + $displayLines)
+                if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
+                if ($selectedItemIndex -gt ($topDisplayIndex + $displayLines - 1)) {$topDisplayIndex = $selectedItemIndex - $displayLines + 1} 
             }
-            default {
-                $charPressed = $keyInfo.Character.ToString().ToUpper()
-                if ($charPressed -eq 'Q') { # T vervangen door Q
-                    $menuLoopActive = $false # Stop de lus, keer terug
-                } elseif ($charPressed -match "^\d+$") { # Als een nummer is ingevoerd
-                    $numChoice = [int]$charPressed
-                    if ($numChoice -ge 1 -and $numChoice -le $sortedDomains.Count) {
-                        $selectedItemIndex = $numChoice - 1
-                        $choiceToProcess = $selectedItemIndex
+            13 { # Enter - Open e-mails van dit domein
+                if ($sortedDomains.Count -gt 0) {
+                    $selectedDomainInfo = $sortedDomains[$selectedItemIndex]
+                    Show-EmailsFromSelectedSender -UserId $UserId -SenderInfo $selectedDomainInfo
+                }
+            }
+            86 { # V - Verplaats alle e-mails van dit domein
+                if ($sortedDomains.Count -gt 0) {
+                    $selectedDomainObject = $sortedDomains[$selectedItemIndex]
+                    $messagesToActOn = $selectedDomainObject.Messages 
+                    if ($messagesToActOn -and $messagesToActOn.Count -gt 0) {
+                        $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                        Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $selectedDomainObject.Domain -AllMessages $messagesToActOn -DirectAction "Move"
+                    } else {
+                        Write-Warning "Geen e-mails gevonden in de cache voor domein $($selectedDomainObject.Domain) om te verplaatsen."
+                        Start-Sleep -Seconds 2
                     }
                 }
             }
-        }
-
-        if (-not $menuLoopActive) { # Als Esc of T is gedrukt
-            # Kleuren worden hersteld door Show-MainMenu
-            return
-        }
-
-        if ($choiceToProcess -ne $null) {
-            $selectedDomainInfo = $sortedDomains[$choiceToProcess] # $choiceToProcess is de index
-            
-            # Herstel standaard consolekleuren voordat een subfunctie wordt aangeroepen
-            # Dit wordt afgehandeld door Show-MainMenu bij terugkeer, en subfuncties moeten hun eigen kleuren instellen indien nodig.
-            # Voor nu, roepen we de volgende functie aan. Deze moet ook CGA-bewust zijn of kleuren herstellen.
-            
-            # BELANGRIJK: Show-EmailsFromSelectedSender moet worden aangepast om een domein te accepteren
-            # en de $SenderInfo parameter moet mogelijk hernoemd worden naar $DomainInfo of iets dergelijks.
-            # Voor nu, passen we de aanroep aan met de verwachting dat $SenderInfo een object is met een .Domain eigenschap.
-            # De naam $selectedSenderInfo wordt $selectedDomainInfo.
-            # De parameter voor Show-EmailsFromSelectedSender heet $SenderInfo, we sturen een object met .Email, .Name, .Count
-            # We moeten een object maken dat overeenkomt, of Show-EmailsFromSelectedSender aanpassen.
-            # Laten we $selectedDomainInfo direct doorgeven en Show-EmailsFromSelectedSender aanpassen.
-            Show-EmailsFromSelectedSender -UserId $UserId -SenderInfo $selectedDomainInfo # $selectedDomainInfo heeft .Domain, .Name, .Count
-            
-            # Na terugkeer van Show-EmailsFromSelectedSender, wordt de lijst opnieuw getoond.
-            # De cache kan gewijzigd zijn, dus de $sortedDomains moeten mogelijk opnieuw worden opgebouwd.
-            # De huidige lus zal dit automatisch doen bij de volgende iteratie als $menuLoopActive nog true is.
-            # Echter, als Show-EmailsFromSelectedSender terugkeert, willen we meestal terug naar het hoofdmenu
-            # om de gebruiker niet vast te houden in een diepere menustructuur zonder duidelijke "terug" optie.
-            # De huidige Show-EmailsFromSelectedSender retourneert naar Show-SenderOverview, die dan opnieuw de lijst toont.
-            # Dit is acceptabel. We moeten wel de $sortedDomains opnieuw laden als de cache is veranderd.
-            # Dit gebeurt aan het begin van de Show-SenderOverview functie.
-            # Dus, na een actie in Show-EmailsFromSelectedSender, zal deze functie opnieuw de data laden.
-            # We moeten de lus niet stoppen, tenzij de gebruiker expliciet terug wil (Esc/T).
-            # De $sortedDomains worden aan het begin van de functie geladen, niet in de lus. Dit moet veranderen.
-            # Herlaad de data hier als we in de lus blijven na een actie.
-            # Voor nu, na een actie in Show-EmailsFromSelectedSender, keert die functie terug,
-            # en deze lus gaat verder, en tekent opnieuw. De data moet dan wel actueel zijn.
-            # De eenvoudigste manier is om Show-SenderOverview opnieuw aan te roepen of de data hier te herladen.
-            # Laten we de data herladen:
-            $domainList = @()
-            foreach ($domainKey in $Script:SenderCache.Keys) {
-                $domainList += [PSCustomObject]@{ Domain = $domainKey; Name = $Script:SenderCache[$domainKey].Name; Count  = $Script:SenderCache[$domainKey].Count }
-            }
-            $sortedDomains = $domainList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Domain
-            if ($sortedDomains.Count -eq 0 -or $selectedItemIndex -ge $sortedDomains.Count) { # Als alle items van een domein zijn verwijderd
-                $selectedItemIndex = 0 # Reset selectie
-                if ($sortedDomains.Count -eq 0) { # Als er helemaal geen domeinen meer zijn
-                    $menuLoopActive = $false # Verlaat de functie
-                    # De melding "Geen domeinen gevonden" wordt dan getoond bij de volgende aanroep van Show-SenderOverview
+            46 { # Delete toets - Verwijder alle e-mails van dit domein
+                 if ($sortedDomains.Count -gt 0) {
+                    $selectedDomainObject = $sortedDomains[$selectedItemIndex]
+                    $messagesToActOn = $selectedDomainObject.Messages
+                    if ($messagesToActOn -and $messagesToActOn.Count -gt 0) {
+                        $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                        Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $selectedDomainObject.Domain -AllMessages $messagesToActOn -DirectAction "Delete"
+                    } else {
+                        Write-Warning "Geen e-mails gevonden in de cache voor domein $($selectedDomainObject.Domain) om te verwijderen."
+                        Start-Sleep -Seconds 2
+                    }
                 }
             }
-            # Ga door met de volgende iteratie van de lus om het menu opnieuw te tekenen
+            27 { $overviewLoopActive = $false } # Escape
+            default {
+                if ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $overviewLoopActive = $false }
+            }
         }
-    }
-    # Kleuren worden hersteld door Show-MainMenu
+    } # Einde while ($overviewLoopActive)
 }
 
 # Helper functie om HTML naar platte tekst te converteren
