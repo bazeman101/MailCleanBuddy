@@ -28,6 +28,78 @@ param (
 
 # Script-level cache for sender information
 $Script:SenderCache = $null 
+$Script:CacheFilePath = $null
+
+# Functie om het pad naar het cachebestand te bepalen
+function Get-CacheFilePath {
+    param (
+        [string]$MailboxEmail
+    )
+    $safeEmail = $MailboxEmail -replace "[^a-zA-Z0-9.-_]", "_"
+    $cacheFileName = "outlookbuddy_cache_$($safeEmail).json"
+    $Script:CacheFilePath = Join-Path -Path $PSScriptRoot -ChildPath $cacheFileName
+    Write-Verbose "Cache file path set to: $($Script:CacheFilePath)"
+}
+
+# Functie om de lokale cache te laden
+function Load-LocalCache {
+    if (-not $Script:CacheFilePath) {
+        Write-Warning "Cache file path is not set. Cannot load cache."
+        return $false
+    }
+    if (Test-Path $Script:CacheFilePath) {
+        try {
+            Write-Host "Lokale cache gevonden. Bezig met laden: $($Script:CacheFilePath)"
+            $jsonContent = Get-Content -Path $Script:CacheFilePath -Raw -ErrorAction Stop
+            $loadedCache = ConvertFrom-Json -InputObject $jsonContent -ErrorAction Stop
+            
+            # Converteer Messages array terug naar List<PSObject> voor elke entry
+            $tempCache = @{}
+            foreach ($key in $loadedCache.PSObject.Properties.Name) {
+                $entry = $loadedCache.$key
+                if ($entry.Messages -is [System.Array]) {
+                    $messageList = [System.Collections.Generic.List[PSObject]]::new()
+                    foreach ($msg in $entry.Messages) {
+                        $messageList.Add($msg)
+                    }
+                    $entry.Messages = $messageList
+                }
+                $tempCache[$key] = $entry
+            }
+            $Script:SenderCache = $tempCache
+            Write-Host "Lokale cache succesvol geladen."
+            return $true
+        } catch {
+            Write-Warning "Fout bij het laden of parsen van de lokale cache: $($_.Exception.Message). De cache wordt genegeerd en een volledige indexering zal worden uitgevoerd."
+            $Script:SenderCache = $null # Zorg ervoor dat de cache leeg is bij een fout
+            return $false
+        }
+    } else {
+        Write-Host "Geen lokale cache gevonden op: $($Script:CacheFilePath)"
+        return $false
+    }
+}
+
+# Functie om de lokale cache op te slaan
+function Save-LocalCache {
+    if (-not $Script:CacheFilePath) {
+        Write-Warning "Cache file path is not set. Cannot save cache."
+        return
+    }
+    if ($null -eq $Script:SenderCache) {
+        Write-Warning "SenderCache is leeg. Cache wordt niet opgeslagen."
+        return
+    }
+    try {
+        Write-Host "Lokale cache opslaan naar: $($Script:CacheFilePath)"
+        # Gebruik een voldoende hoge diepte voor ConvertTo-Json
+        $jsonContent = $Script:SenderCache | ConvertTo-Json -Depth 10 -ErrorAction Stop 
+        Set-Content -Path $Script:CacheFilePath -Value $jsonContent -ErrorAction Stop
+        Write-Host "Lokale cache succesvol opgeslagen."
+    } catch {
+        Write-Warning "Fout bij het opslaan van de lokale cache: $($_.Exception.Message)"
+    }
+}
 
 # Placeholder functions for menu items
 function Index-Mailbox {
@@ -158,8 +230,9 @@ function Index-Mailbox {
         Write-Progress -Activity "Mailbox Indexeren" -Completed
 
         $uniqueSenders = $Script:SenderCache.Keys.Count
-        Write-Host "Indexeren voltooid. $uniqueSenders unieke afzender(s) gevonden."
+        Write-Host "Indexeren voltooid. $uniqueSenders unieke afzenderdome(i)n(en) gevonden." # Aangepast voor domeinen
         
+        Save-LocalCache # Sla de nieuw geïndexeerde cache op
     } catch {
         Write-Error "Fout tijdens het indexeren van de mailbox: $($_.Exception.Message)"
         if ($_.Exception.InnerException) {
@@ -470,6 +543,8 @@ function Update-SenderCache {
             Write-Warning "Kon bericht met ID '$MessageIdToRemove' niet vinden in de cache voor domein '$normalizedDomainKey'."
         }
     }
+    # Sla de cache op na elke update
+    Save-LocalCache
 }
 
 # Nieuwe functie om e-mails van een geselecteerde afzender te tonen en acties te starten
@@ -2135,14 +2210,15 @@ function Show-MainMenu {
 
     # Menu-items en bijbehorende actiecodes
     $menuItems = @(
-        "1. Overzicht van verzenders",                # Was 2
-        "2. Beheer mails van specifieke afzender",    # Was 3
-        "3. Zoek naar een mail",                       # Was 4
-        "4. Bekijk laatste 100 e-mails",            # Was 5
-        "5. Leeg 'Verwijderde Items'",              # Was 6
+        "1. Overzicht van verzenders (uit cache)",
+        "2. Beheer mails van specifieke afzender",    # Werkt op cache
+        "3. Zoek naar een mail (live)",              # Zoekt live, niet uit cache
+        "4. Bekijk laatste 100 e-mails (live)",     # Haalt live op
+        "5. Leeg 'Verwijderde Items' (live)",
+        "R. Ververs Index vanaf Server (Forceer Refresh)", # Nieuwe/hernoemde optie
         "Q. Afsluiten"
     )
-    $actionCodes = "1", "2", "3", "4", "5", "Q" # Aangepaste actiecodes, indexering is verwijderd
+    $actionCodes = "1", "2", "3", "4", "5", "R", "Q" 
     
     $selectedItemIndex = 0
     $menuLoopActive = $true
@@ -2236,11 +2312,17 @@ function Show-MainMenu {
             Clear-Host # Maak scherm schoon met originele kleuren voor de subactie
 
             switch ($choiceToProcess) {
-                "1" { Show-SenderOverview -UserId $UserEmail }                # Was 2
-                "2" { Manage-EmailsBySender -UserId $UserEmail }            # Was 3
-                "3" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent } # Was 4
-                "4" { Show-RecentEmails -UserId $UserEmail }                # Was 5
-                "5" { Empty-DeletedItemsFolder -UserId $UserEmail }          # Was 6
+                "1" { Show-SenderOverview -UserId $UserEmail }
+                "2" { Manage-EmailsBySender -UserId $UserEmail }
+                "3" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent }
+                "4" { Show-RecentEmails -UserId $UserEmail }
+                "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
+                "R" { 
+                    Write-Host "Volledige indexering vanaf server wordt gestart..."
+                    Index-Mailbox -UserId $UserEmail # Deze functie slaat de cache zelf op
+                    Write-Host "Indexering voltooid. Druk op een toets om het menu opnieuw te laden."
+                    $Host.UI.RawUI.ReadKey($true) | Out-Null # Wacht op toetsaanslag
+                }
                 "Q" {
                     Write-Host "Afsluiten..."
                     $menuLoopActive = $false # Stop de menulus
@@ -2336,14 +2418,23 @@ try {
         if (-not (Get-Command Get-MgUserMessage -ErrorAction SilentlyContinue)) {
             throw "Kritiek: Get-MgUserMessage cmdlet is niet beschikbaar na een succesvolle verbinding met Microsoft Graph. Controleer de Microsoft.Graph.Mail module."
         }
-        Write-Host "Verbinding succesvol. Starten met automatische indexering van de mailbox..."
-        Index-Mailbox -UserId $MailboxEmail # Automatisch indexeren
-        Write-Host "Automatische indexering voltooid (of poging daartoe)."
-        # Een korte pauze zodat de gebruiker de indexeringsberichten kan zien voordat het menu verschijnt.
-        # Start-Sleep -Seconds 2 # Optioneel, kan verwijderd worden als het niet gewenst is.
+        Write-Host "Verbinding succesvol."
+
+        # Initialiseer en laad/bouw de cache
+        Get-CacheFilePath -MailboxEmail $MailboxEmail
+        if (Load-LocalCache) {
+            Write-Host "Lokale cache geladen. Volledige indexering wordt overgeslagen voor snellere start."
+            Write-Host "Gebruik menu-optie 'R' om de index handmatig vanaf de server te verversen."
+            # $Script:SenderCache is nu gevuld vanuit het bestand
+        } else {
+            Write-Host "Geen (valide) lokale cache gevonden. Starten met automatische indexering van de mailbox..."
+            Index-Mailbox -UserId $MailboxEmail # Indexeert en slaat de cache op
+            Write-Host "Automatische indexering voltooid (of poging daartoe)."
+        }
+        # Start-Sleep -Seconds 1 # Korte pauze
     }
     catch {
-        throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph of initiële indexering: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
+        throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph of initialisatie van de cache: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
     }
     
     # Main application loop
