@@ -412,6 +412,7 @@ function Perform-ActionOnSingleEmail {
 
 # Nieuwe functie voor acties op ALLE e-mails van een afzender (vanuit de cache)
 function Perform-ActionOnAllSenderEmails {
+    [CmdletBinding()]
     param (
         [string]$UserId,
         [string]$SenderEmail, # E-mailadres van de afzender
