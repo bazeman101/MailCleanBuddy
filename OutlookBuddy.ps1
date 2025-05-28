@@ -126,7 +126,8 @@ function Show-SenderOverview {
     }
 
     # Sorteer op aantal (aflopend) en dan op naam (oplopend)
-    $sortedSenders = $senderList | Sort-Object -Property Count -Descending | Sort-Object -Property Name
+    # De eigenschap 'Name' wordt gebruikt als secundaire sorteersleutel voor items met hetzelfde 'Count'.
+    $sortedSenders = $senderList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Name
 
     if ($sortedSenders.Count -eq 0) {
         Write-Host "Geen afzenders gevonden in de cache (dit zou niet moeten gebeuren als de indexering succesvol was)."
