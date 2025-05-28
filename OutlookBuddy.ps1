@@ -231,9 +231,9 @@ function Show-SenderOverview {
         # Zorg ervoor dat selectie en view binnen grenzen blijven na data herladen
         $selectedItemIndex = [Math]::Max(0, [Math]::Min($selectedItemIndex, $sortedDomains.Count - 1))
         $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $sortedDomains.Count - $displayLines))
-        if ($topDisplayIndex < 0) {$topDisplayIndex = 0}
-        if ($selectedItemIndex < $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex }
-        if ($selectedItemIndex >= $topDisplayIndex + $displayLines) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 }
+        if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} # Gecorrigeerd: < naar -lt
+        if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex } # Gecorrigeerd: < naar -lt
+        if ($selectedItemIndex -ge ($topDisplayIndex + $displayLines)) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 } # Gecorrigeerd: >= naar -ge (en haakjes voor duidelijkheid)
 
 
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor
