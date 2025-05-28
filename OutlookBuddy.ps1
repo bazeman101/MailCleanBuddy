@@ -878,7 +878,7 @@ function Show-RecentEmails {
                 }
                 if ($messagesToActOn.Count -gt 0) {
                     $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                    Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" # Dummy domain
+                    Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" -DirectAction "Delete"
                     $spaceSelectedMessageIds.Clear()
                     # Herlaad de lijst van recente berichten
                     Write-Host "Herladen van recente e-mails..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
