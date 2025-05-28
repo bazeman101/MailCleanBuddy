@@ -416,7 +416,7 @@ function Perform-ActionOnAllSenderEmails {
     param (
         [string]$UserId,
         [string]$SenderEmail, # E-mailadres van de afzender
-        [System.Collections.Generic.List[PSObject]]$AllMessages # Lijst van $messageDetail objecten
+        [System.Collections.Generic.List[PSObject]]$AllMessages
     )
     [OutputType([bool])] # Geeft aan of alle berichten zijn verwerkt (en de afzender mogelijk uit cache is)
 
