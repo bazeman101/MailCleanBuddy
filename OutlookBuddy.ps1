@@ -166,8 +166,7 @@ function Index-Mailbox {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd, Escape in hoofdmenu is de weg terug
 }
 
 function Show-SenderOverview {
@@ -229,7 +228,7 @@ function Show-SenderOverview {
 
         $title = "Overzicht van afzenderdomeinen voor $UserId"
         $separator = "--------------------------------------------------------------------" # Aangepaste breedte
-        $instructionText = "Gebruik ↑/↓, Enter om te kiezen, Esc of T om terug te keren."
+        $instructionText = "Gebruik ↑/↓, Enter om te kiezen, Esc of Q om terug te keren." # T vervangen door Q
         
         # Bereken dynamische breedte en padding
         $tempMenuContentForWidth = @($title) + @($separator)
@@ -300,7 +299,7 @@ function Show-SenderOverview {
             }
             default {
                 $charPressed = $keyInfo.Character.ToString().ToUpper()
-                if ($charPressed -eq 'T') {
+                if ($charPressed -eq 'Q') { # T vervangen door Q
                     $menuLoopActive = $false # Stop de lus, keer terug
                 } elseif ($charPressed -match "^\d+$") { # Als een nummer is ingevoerd
                     $numChoice = [int]$charPressed
@@ -365,6 +364,81 @@ function Show-SenderOverview {
         }
     }
     # Kleuren worden hersteld door Show-MainMenu
+}
+
+# Helper functie voor Ja/Nee bevestiging met pijltjesnavigatie
+function Get-Confirmation {
+    param (
+        [string]$PromptMessage,
+        [string]$WindowTitle = "Bevestiging"
+    )
+
+    # Sla huidige consolekleuren op (wordt hersteld door aanroepende functie of hoofdmenu)
+    # $originalForegroundColor = $Host.UI.RawUI.ForegroundColor
+    # $originalBackgroundColor = $Host.UI.RawUI.BackgroundColor
+
+    # CGA-kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black
+    $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green
+    $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White
+    $cgaWarningFgColor = [System.ConsoleColor]::Red # Voor de prompt message
+
+    $options = @("Ja", "Nee")
+    $selectedOptionIndex = 0 # Standaard "Ja"
+    $confirmationLoopActive = $true
+
+    while ($confirmationLoopActive) {
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+        # Clear-Host is hier misschien te veel, we willen de context van de vraag behouden.
+        # We tekenen de prompt en opties op de huidige cursorpositie of iets lager.
+        # Voor nu, houden we het simpel en clearen we niet, de aanroeper moet de UI beheren.
+        # Echter, voor een pop-up-achtig gevoel, zou je cursorpositie kunnen opslaan en herstellen.
+
+        # Toon de prompt (mogelijk met een waarschuwingskleur)
+        Write-Host $PromptMessage -ForegroundColor $cgaWarningFgColor
+        
+        # Toon de opties
+        for ($i = 0; $i -lt $options.Count; $i++) {
+            $optionText = $options[$i]
+            if ($i -eq $selectedOptionIndex) {
+                Write-Host "  > $($optionText)  " -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor -NoNewline
+            } else {
+                Write-Host "    $($optionText)  " -ForegroundColor $cgaFgColor -BackgroundColor $cgaBgColor -NoNewline
+            }
+        }
+        Write-Host "" # Nieuwe regel na de opties
+
+        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+
+        switch ($keyInfo.VirtualKeyCode) {
+            37 { # LeftArrow
+                $selectedOptionIndex--
+                if ($selectedOptionIndex -lt 0) { $selectedOptionIndex = $options.Count - 1 }
+            }
+            39 { # RightArrow
+                $selectedOptionIndex++
+                if ($selectedOptionIndex -ge $options.Count) { $selectedOptionIndex = 0 }
+            }
+            13 { # Enter
+                $confirmationLoopActive = $false
+                # Kleuren worden hersteld door de aanroepende functie
+                return ($options[$selectedOptionIndex] -eq "Ja")
+            }
+            27 { # Escape
+                $confirmationLoopActive = $false
+                # Kleuren worden hersteld door de aanroepende functie
+                return $false # Behandel Escape als "Nee" of annuleren
+            }
+        }
+        # Wis de vorige opties (simpele aanpak: ga een regel omhoog en wis)
+        # Dit is lastig zonder de exacte cursorpositie te beheren.
+        # Voor nu, accepteren we dat de opties opnieuw worden getekend.
+        # Een betere UI zou de cursorpositie opslaan en alleen de optieregels overschrijven.
+        # Voor de eenvoud laten we dit nu achterwege. De aanroepende functie kan Clear-Host doen indien nodig.
+    }
 }
 
 
@@ -483,6 +557,69 @@ function Show-EmailsFromSelectedSender {
     # De functie retourneert nu, en Show-SenderOverview zal opnieuw de lijst van domeinen opbouwen.
 }
 
+# Helper functie om de body van een e-mail te tonen
+function Show-EmailBody {
+    param (
+        [string]$UserId,
+        [PSCustomObject]$MessageObject # Het volledige $messageDetail object uit de cache of direct van Graph
+    )
+
+    # CGA Kleuren (ervan uitgaande dat de aanroeper de kleuren beheert voor/na deze functie)
+    $cgaBgColor = [System.ConsoleColor]::Black
+    $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaInstructionFgColor = [System.ConsoleColor]::White
+    
+    $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+    $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+    Clear-Host
+
+    Write-Host "Volledige body van e-mail:"
+    Write-Host "Onderwerp    : $($MessageObject.Subject)"
+    Write-Host "Ontvangen op : $(Get-Date $MessageObject.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss")"
+    Write-Host "ID           : $($MessageObject.MessageId)"
+    Write-Host "----------------------------------------------------"
+
+    # Haal de volledige body op als die nog niet in $MessageObject zit (bijv. als het uit de cache komt zonder body)
+    $bodyContent = $MessageObject.Body # Als 'Body' al een property is met .Content
+    if ($MessageObject.PSObject.Properties["Body"] -and $MessageObject.Body.PSObject.Properties["Content"]) {
+        $bodyContent = $MessageObject.Body.Content
+    } elseif ($MessageObject.PSObject.Properties["BodyPreview"]) {
+        # Fallback naar BodyPreview als volledige body niet direct beschikbaar is
+        # Idealiter zou je hier de volledige body ophalen via Get-MgUserMessage als die ontbreekt
+        Write-Warning "Volledige body niet direct beschikbaar in het object, toon BodyPreview."
+        $bodyContent = $MessageObject.BodyPreview
+    } else {
+         # Probeer de volledige body op te halen als deze ontbreekt
+        try {
+            Write-Host "Ophalen van volledige body van server..."
+            $fullMessage = Get-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -Property "body" -ErrorAction Stop
+            if ($fullMessage -and $fullMessage.Body) {
+                $bodyContent = $fullMessage.Body.Content
+                if ($fullMessage.Body.ContentType -eq "html") {
+                    Write-Warning "De body is in HTML-formaat. HTML-tags worden als platte tekst weergegeven."
+                }
+            } else {
+                $bodyContent = "(Kon volledige body niet ophalen)"
+            }
+        } catch {
+            Write-Error "Fout bij ophalen volledige body: $($_.Exception.Message)"
+            $bodyContent = "(Fout bij ophalen body)"
+        }
+    }
+    
+    Write-Host $bodyContent
+    Write-Host "----------------------------------------------------"
+    Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+
+    while ($true) {
+        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        if ($keyInfo.VirtualKeyCode -eq 27) { # Escape
+            break
+        }
+    }
+    # Kleuren worden hersteld door de aanroepende functie
+}
+
 # Nieuwe functie voor acties op een enkele geselecteerde e-mail
 function Perform-ActionOnSingleEmail {
     param (
@@ -496,49 +633,108 @@ function Perform-ActionOnSingleEmail {
     Write-Host "Ontvangen: $($MessageObject.ReceivedDateTime)"
     Write-Host "ID        : $($MessageObject.MessageId)"
     Write-Host "-------------------------------------------"
-    Write-Host "Kies een actie:"
-    Write-Host "1. Verwijder deze e-mail"
-    Write-Host "2. Verplaats deze e-mail"
-    Write-Host "3. Terug"
 
-    $choice = Read-Host "Uw keuze (1-3)"
-    switch ($choice) {
-        "1" {
-            $confirm = Read-Host "Weet u zeker dat u deze e-mail permanent wilt verwijderen? (ja/nee)"
-            if ($confirm -eq 'ja') {
-                try {
-                    Write-Host "Verwijderen van e-mail ID $($MessageObject.MessageId)..."
+    # CGA Kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White
+
+    $actionMenuItems = @(
+        "1. Verwijder deze e-mail",
+        "2. Verplaats deze e-mail",
+        "3. Terug (Esc)"
+    )
+    $selectedActionItemIndex = 0
+    $actionLoopActive = $true
+
+    while ($actionLoopActive) {
+        # Herteken alleen de actie-opties, niet het hele scherm
+        # $currentCursorPos = $Host.UI.RawUI.CursorPosition # Optioneel voor preciezere UI
+        Write-Host "Kies een actie:" -ForegroundColor $cgaInstructionFgColor
+        for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
+            $itemText = $actionMenuItems[$i]
+            if ($i -eq $selectedActionItemIndex) {
+                Write-Host "> $($itemText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+            } else {
+                Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
+            }
+        }
+
+        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $actionToExecute = $null
+
+        switch ($keyInfo.VirtualKeyCode) {
+            38 { # UpArrow
+                $selectedActionItemIndex--
+                if ($selectedActionItemIndex -lt 0) { $selectedActionItemIndex = $actionMenuItems.Count - 1 }
+            }
+            40 { # DownArrow
+                $selectedActionItemIndex++
+                if ($selectedActionItemIndex -ge $actionMenuItems.Count) { $selectedActionItemIndex = 0 }
+            }
+            13 { # Enter
+                $actionToExecute = $actionMenuItems[$selectedActionItemIndex]
+            }
+            27 { # Escape
+                $actionToExecute = "3. Terug (Esc)" # Behandel Escape als Terug
+            }
+            default {
+                $charPressed = $keyInfo.Character.ToString()
+                if ($charPressed -eq '1') { $selectedActionItemIndex = 0; $actionToExecute = $actionMenuItems[0] }
+                if ($charPressed -eq '2') { $selectedActionItemIndex = 1; $actionToExecute = $actionMenuItems[1] }
+                if ($charPressed -eq '3') { $selectedActionItemIndex = 2; $actionToExecute = $actionMenuItems[2] }
+            }
+        }
+        # Wis de vorige menu-opties (simpele aanpak: overschrijf met lege regels of Clear-Host als het ok is)
+        # Voor nu, de lus zal het opnieuw tekenen.
+
+        if ($actionToExecute) {
+            $actionLoopActive = $false # Verlaat de lus na een keuze, tenzij het een sub-menu is
+            
+            # Herstel kleuren voor sub-acties
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            # Clear-Host # Of wis alleen de menu-opties
+
+            if ($actionToExecute -like "1. Verwijder*") {
+                if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail permanent wilt verwijderen?") {
+                    try {
+                        Write-Host "Verwijderen van e-mail ID $($MessageObject.MessageId)..."
                     Remove-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -ErrorAction Stop
                     Write-Host "E-mail succesvol verwijderd van server."
                     # Update cache
                     Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
                 } catch {
-                    Write-Error "Fout bij het verwijderen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
-                }
-            } else { Write-Host "Verwijderen geannuleerd." }
-        }
-        "2" {
-            $destinationFolderId = Get-MailFolderSelection -UserId $UserId
-            if ($destinationFolderId) {
-                $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
-                $confirm = Read-Host "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
-                if ($confirm -eq 'ja') {
-                    try {
-                        Write-Host "Verplaatsen van e-mail ID $($MessageObject.MessageId) naar '$($destinationFolder.DisplayName)'..."
-                        Move-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
-                        Write-Host "E-mail succesvol verplaatst."
-                        # Update cache
-                        Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
-                    } catch {
-                        Write-Error "Fout bij het verplaatsen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
+                        Write-Error "Fout bij het verwijderen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
                     }
-                } else { Write-Host "Verplaatsen geannuleerd." }
-            } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
-        }
-        "3" { return } # Terug naar Show-EmailsFromSelectedSender
-        default { Write-Warning "Ongeldige keuze." }
-    }
-    Read-Host "Druk op Enter om terug te keren."
+                } else { Write-Host "Verwijderen geannuleerd." }
+                 Read-Host "Druk op Enter om door te gaan." # Tijdelijk, tot alle Read-Host weg zijn
+            } elseif ($actionToExecute -like "2. Verplaats*") {
+                $destinationFolderId = Get-MailFolderSelection -UserId $UserId # Deze moet ook interactief worden
+                if ($destinationFolderId) {
+                    $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
+                    if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'?") {
+                        try {
+                            Write-Host "Verplaatsen van e-mail ID $($MessageObject.MessageId) naar '$($destinationFolder.DisplayName)'..."
+                            Move-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                            Write-Host "E-mail succesvol verplaatst."
+                        # Update cache
+                            Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                        } catch {
+                            Write-Error "Fout bij het verplaatsen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
+                        }
+                    } else { Write-Host "Verplaatsen geannuleerd." }
+                } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
+                Read-Host "Druk op Enter om door te gaan." # Tijdelijk
+            } elseif ($actionToExecute -like "3. Terug*") {
+                # Do nothing, loop will exit
+            } else {
+                 Write-Warning "Ongeldige actie: $actionToExecute" # Zou niet moeten gebeuren
+                 Read-Host "Druk op Enter om door te gaan." # Tijdelijk
+            }
+        } # end if ($actionToExecute)
+    } # end while ($actionLoopActive)
+    # Read-Host "Druk op Enter om terug te keren." # Verwijderd
 }
 
 # Nieuwe functie voor acties op ALLE e-mails van een afzender (vanuit de cache)
