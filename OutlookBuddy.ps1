@@ -42,7 +42,7 @@ function Index-Mailbox {
     try {
         Write-Host "Ophalen van berichten..."
         # Definieer de eigenschappen die we willen ophalen voor elke e-mail
-        $messageProperties = "id", "subject", "sender", "receivedDateTime", "size", "toRecipients", "categories"
+        $messageProperties = "id", "subject", "sender", "receivedDateTime", "sizeInBytes", "toRecipients", "categories"
 
         if ($TestRun.IsPresent) {
             # Haal de laatste 100 berichten op, gesorteerd op ontvangstdatum (nieuwste eerst)
@@ -85,7 +85,7 @@ function Index-Mailbox {
                     MessageId        = $message.Id
                     Subject          = $message.Subject
                     ReceivedDateTime = $message.ReceivedDateTime
-                    Size             = $message.Size
+                    Size             = $message.SizeInBytes # Aangepast van Size naar SizeInBytes
                     ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
                     Categories       = $message.Categories
                 }
