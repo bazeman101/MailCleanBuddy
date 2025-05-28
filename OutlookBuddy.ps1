@@ -13,7 +13,8 @@
 .NOTES
     Requires the Microsoft.Graph.Authentication and Microsoft.Graph.Mail modules.
     The script will attempt to install them if not found.
-    Ensure you have the necessary permissions (Microsoft Graph: Mail.Read) to access the specified mailbox.
+    Ensure you have the necessary permissions (Microsoft Graph: Mail.Read, Mail.ReadWrite) to access the specified mailbox.
+    Mail.ReadWrite is required for deleting or moving emails.
     You will be prompted to consent to these permissions on first run.
 #>
 [CmdletBinding()]
@@ -128,9 +129,68 @@ function Show-SenderOverview {
 
 function Manage-EmailsBySender {
     param($UserId)
-    Write-Host "Menu Item 2.1-2.3: Beheer mails van specifieke afzender voor $UserId (Nog niet geïmplementeerd)"
-    # TODO: Implement selection, deletion, and moving logic
+    Clear-Host
+    Write-Host "Beheer e-mails van specifieke afzender voor $UserId"
+    Write-Host "----------------------------------------------------"
+
+    if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
+        Write-Warning "De mailbox is nog niet geïndexeerd of de index is leeg."
+        Write-Warning "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
+
+    $senderEmail = Read-Host "Voer het e-mailadres in van de afzender"
+    if (-not $Script:SenderCache.ContainsKey($senderEmail.ToLowerInvariant())) {
+        Write-Warning "Afzender '$senderEmail' niet gevonden in de cache. Controleer het e-mailadres of indexeer de mailbox opnieuw."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
+
+    $senderInfo = $Script:SenderCache[$senderEmail.ToLowerInvariant()]
+    Write-Host "Afzender geselecteerd: $($senderInfo.Name) <$senderEmail>"
+    Write-Host "Aantal e-mails in cache: $($senderInfo.Count)"
+    Write-Host ""
+    Write-Host "Kies een actie:"
+    Write-Host "1. Verwijder alle e-mails van deze afzender"
+    Write-Host "2. Verplaats alle e-mails van deze afzender naar een andere map"
+    Write-Host "3. Terug naar hoofdmenu"
+    
+    $actionChoice = Read-Host "Kies een optie (1-3)"
+
+    switch ($actionChoice) {
+        "1" { Delete-MailsFromSender -UserId $UserId -SenderEmail $senderEmail }
+        "2" { Move-MailsFromSender -UserId $UserId -SenderEmail $senderEmail }
+        "3" { return } # Terug naar hoofdmenu
+        default {
+            Write-Warning "Ongeldige keuze."
+        }
+    }
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
+function Delete-MailsFromSender {
+    param(
+        [string]$UserId,
+        [string]$SenderEmail
+    )
+    Write-Host "Functie 'Delete-MailsFromSender' voor $SenderEmail (Nog niet geïmplementeerd)"
+    # TODO: Implement logic to find and delete emails from the specified sender
+    # Vereist Mail.ReadWrite permissie
+    # Voorbeeld: Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" | Remove-MgUserMessage
+}
+
+function Move-MailsFromSender {
+    param(
+        [string]$UserId,
+        [string]$SenderEmail
+    )
+    Write-Host "Functie 'Move-MailsFromSender' voor $SenderEmail (Nog niet geïmplementeerd)"
+    # TODO: Implement logic to find emails from the specified sender
+    # TODO: Prompt user for destination folder
+    # TODO: Move emails to the destination folder
+    # Vereist Mail.ReadWrite permissie
+    # Voorbeeld: Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" | Move-MgUserMessage -DestinationId 'destinationFolderId'
 }
 
 function Search-Mail {
@@ -172,7 +232,7 @@ function Show-MainMenu {
 
 try {
     # Define required Graph API scopes
-    $RequiredScopes = @("Mail.Read", "User.Read") # User.Read is often good to have for context
+    $RequiredScopes = @("Mail.Read", "User.Read", "Mail.ReadWrite") # Mail.ReadWrite for delete/move operations
 
     # Check, install if necessary, and import Microsoft.Graph.Authentication module
     try {
