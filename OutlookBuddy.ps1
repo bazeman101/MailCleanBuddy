@@ -493,68 +493,172 @@ function Show-EmailsFromSelectedSender {
     while ($Script:SenderCache.ContainsKey($normalizedDomainKey) -and $Script:SenderCache[$normalizedDomainKey].Messages.Count -gt 0) {
         # CGA Kleuren moeten hier ook worden ingesteld als deze functie direct wordt aangeroepen
         # en niet via een menu dat al kleuren beheert.
-        # Voor nu gaan we ervan uit dat de aanroepende functie (Show-SenderOverview) de kleuren beheert.
+        # CGA Kleuren
+        $cgaBgColor = [System.ConsoleColor]::Black
+        $cgaFgColor = [System.ConsoleColor]::Green
+        $cgaSelectedBgColor = [System.ConsoleColor]::Green
+        $cgaSelectedFgColor = [System.ConsoleColor]::Black
+        $cgaInstructionFgColor = [System.ConsoleColor]::White
+
+        $selectedEmailIndex = 0
+        $selectedActionIndex = 0 # Voor het actiemenu onderaan
+
+        # Acties die onderaan de e-maillijst getoond worden
+        $bottomMenuItems = @(
+            "Acties op geselecteerde e-mail", # Index 0
+            "Beheer ALLE e-mails van dit domein", # Index 1
+            "Terug naar domeinoverzicht (Esc/Q)"     # Index 2, Q toegevoegd voor consistentie
+        )
+        $currentFocusIsEmailList = $true # True als focus op e-maillijst, False als op actiemenu
+
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host 
-        $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
-        $messagesFromDomain = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending # Berichten zijn al van dit domein
         
-        Write-Host "E-mails van domein: $($cachedDomainEntry.Name)" # .Name is nu het domein
-        Write-Host "Aantal in cache voor dit domein: $($cachedDomainEntry.Count)" # Aantal van het domein
-        Write-Host "-------------------------------------------------------------------------------------------------------------------"
-        # De header kan hetzelfde blijven, maar de context is nu "alle e-mails van dit domein"
-        Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f "#", "Onderwerp", "Ontvangen Op", "Grootte (Bytes)")
-        Write-Host "-------------------------------------------------------------------------------------------------------------------"
-
-        $selectableMessages = @{}
-        $emailIndex = 1
-        foreach ($message in $messagesFromDomain) { # Itereren over berichten van het domein
-            $subjectDisplay = if ($message.Subject) { ($message.Subject | Select-Object -First 1) } else { "(Geen onderwerp)" }
-            if ($subjectDisplay.Length -gt 57) { $subjectDisplay = $subjectDisplay.Substring(0, 57) + "..." }
-            
-            $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
-            $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
-
-            Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f $emailIndex, $subjectDisplay, $receivedDisplay, $sizeDisplay)
-            $selectableMessages[$emailIndex] = $message # Sla het volledige messageDetail object op
-            $emailIndex++
+        $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
+        # Sorteer berichten hier eenmalig, tenzij de lijst verandert
+        $messagesFromDomain = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
+        
+        if ($messagesFromDomain.Count -eq 0) {
+            Write-Host "Geen e-mails (meer) in de cache voor domein '$domainName'." -ForegroundColor $cgaInstructionFgColor
+            Write-Host "Druk op Escape of Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            while($true){ $key = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
+            return
         }
-        Write-Host "-------------------------------------------------------------------------------------------------------------------"
-        Write-Host "Kies een e-mailnummer (1-$($emailIndex-1)) voor acties op die e-mail."
-        Write-Host "A. Beheer ALLE e-mails van dit domein (Verwijder/Verplaats alle)" # Tekst aangepast
-        Write-Host "T. Terug naar overzicht van domeinen" # Tekst aangepast
 
-        $actionChoice = Read-Host "Uw keuze" # TODO: Dit menu kan ook CGA/pijltjes krijgen
+        # Hoofd lus voor dit menu
+        $emailMenuLoopActive = $true
+        while ($emailMenuLoopActive) {
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host
 
-        if ($actionChoice -eq 'T' -or $actionChoice -eq 't') {
-            return # Terug naar Show-SenderOverview
-        } elseif ($actionChoice -eq 'A' -or $actionChoice -eq 'a') {
-            # Roep functie aan om ALLE e-mails van dit DOMEIN te beheren
-            # Perform-ActionOnAllSenderEmails moet worden aangepast om met een domein om te gaan
-            $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $domainName -AllMessages $messagesFromDomain
-            if ($allMessagesWereModified) {
-                # Als alle berichten zijn aangepast (bijv. verwijderd), is het domein mogelijk niet meer in de cache.
-                # De lusconditie `while ($Script:SenderCache.ContainsKey($normalizedDomainKey))` zal dit afhandelen.
-                # Als de entry weg is, zal de lus stoppen en de functie retourneren.
-                # Als de entry er nog is (bijv. verplaatsen mislukt voor sommigen), blijft de lus.
-                # Het is veilig om hier gewoon door te gaan met de volgende iteratie van de while-lus.
-                continue 
+            Write-Host "E-mails van domein: $($cachedDomainEntry.Name)"
+            Write-Host "Aantal in cache: $($cachedDomainEntry.Count)"
+            Write-Host "Gebruik ↑/↓ om te navigeren, Enter om te selecteren/lezen, Tab om focus te wisselen, Esc/Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            Write-Host "-------------------------------------------------------------------------------------------------------------------"
+            Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f "#", "Onderwerp", "Ontvangen Op", "Grootte (Bytes)")
+            Write-Host "-------------------------------------------------------------------------------------------------------------------"
+
+            # Toon e-maillijst
+            for ($i = 0; $i -lt $messagesFromDomain.Count; $i++) {
+                $message = $messagesFromDomain[$i]
+                $itemNumber = $i + 1
+                $subjectDisplay = if ($message.Subject) { ($message.Subject | Select-Object -First 1) } else { "(Geen onderwerp)" }
+                if ($subjectDisplay.Length -gt 57) { $subjectDisplay = $subjectDisplay.Substring(0, 57) + "..." }
+                $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
+                $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
+                $lineText = "{0,-5} {1,-60} {2,-20} {3,-15}" -f "$itemNumber.", $subjectDisplay, $receivedDisplay, $sizeDisplay
+                
+                if ($currentFocusIsEmailList -and $i -eq $selectedEmailIndex) {
+                    Write-Host $lineText -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                } else {
+                    Write-Host $lineText
+                }
             }
-        } elseif ($selectableMessages.ContainsKey($actionChoice)) {
-            $selectedMessageObject = $selectableMessages[$actionChoice]
-            # Roep functie aan om een ENKELE e-mail te beheren
-            # Perform-ActionOnSingleEmail moet worden aangepast om met een domein om te gaan voor cache updates
-            Perform-ActionOnSingleEmail -UserId $UserId -MessageObject $selectedMessageObject -DomainToUpdateCache $domainName
-            # Na een actie op een enkele e-mail, wordt de lijst automatisch opnieuw opgebouwd in de volgende lus-iteratie,
-            # en de tellingen/berichten zijn bijgewerkt als de cache correct is aangepast.
-        } else {
-            Write-Warning "Ongeldige keuze."
-            Read-Host "Druk op Enter om door te gaan."
-        }
-    }
+            Write-Host "-------------------------------------------------------------------------------------------------------------------"
+
+            # Toon actiemenu onderaan
+            for ($i = 0; $i -lt $bottomMenuItems.Count; $i++) {
+                $actionText = $bottomMenuItems[$i]
+                if (-not $currentFocusIsEmailList -and $i -eq $selectedActionIndex) {
+                    Write-Host "> $($actionText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                } else {
+                    Write-Host "  $($actionText)"
+                }
+            }
+            Write-Host "-------------------------------------------------------------------------------------------------------------------"
+
+            # Wacht op toetsaanslag
+            $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+
+            if ($currentFocusIsEmailList) {
+                switch ($keyInfo.VirtualKeyCode) {
+                    38 { # UpArrow
+                        $selectedEmailIndex--
+                        if ($selectedEmailIndex -lt 0) { $selectedEmailIndex = $messagesFromDomain.Count - 1 }
+                    }
+                    40 { # DownArrow
+                        $selectedEmailIndex++
+                        if ($selectedEmailIndex -ge $messagesFromDomain.Count) { $selectedEmailIndex = 0 }
+                    }
+                    13 { # Enter - Bekijk geselecteerde e-mail
+                        if ($messagesFromDomain.Count -gt 0 -and $selectedEmailIndex -lt $messagesFromDomain.Count) {
+                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor # Herstel kleuren voor subfunctie
+                            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                            Show-EmailBody -UserId $UserId -MessageObject $messagesFromDomain[$selectedEmailIndex]
+                            # Na terugkeer, herlaad de lijst niet, ga gewoon door met de lus om opnieuw te tekenen
+                        }
+                    }
+                    9 { # Tab - Wissel focus naar actiemenu
+                        $currentFocusIsEmailList = $false
+                        $selectedActionIndex = 0 # Reset selectie in actiemenu
+                    }
+                    27 { $emailMenuLoopActive = $false } # Escape
+                }
+                if ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $emailMenuLoopActive = $false }
+
+            } else { # Focus is op actiemenu
+                switch ($keyInfo.VirtualKeyCode) {
+                    38 { # UpArrow
+                        $selectedActionIndex--
+                        if ($selectedActionIndex -lt 0) { $selectedActionIndex = $bottomMenuItems.Count - 1 }
+                    }
+                    40 { # DownArrow
+                        $selectedActionIndex++
+                        if ($selectedActionIndex -ge $bottomMenuItems.Count) { $selectedActionIndex = 0 }
+                    }
+                    13 { # Enter - Voer geselecteerde actie uit
+                        $chosenAction = $bottomMenuItems[$selectedActionIndex]
+                        if ($chosenAction -like "Acties op geselecteerde e-mail*") {
+                            if ($messagesFromDomain.Count -gt 0 -and $selectedEmailIndex -lt $messagesFromDomain.Count) {
+                                $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                                Perform-ActionOnSingleEmail -UserId $UserId -MessageObject $messagesFromDomain[$selectedEmailIndex] -DomainToUpdateCache $domainName
+                                # Herlaad berichtenlijst na actie
+                                if ($Script:SenderCache.ContainsKey($normalizedDomainKey)) {
+                                     $messagesFromDomain = $Script:SenderCache[$normalizedDomainKey].Messages | Sort-Object ReceivedDateTime -Descending
+                                     if ($selectedEmailIndex -ge $messagesFromDomain.Count) {$selectedEmailIndex = [Math]::Max(0, $messagesFromDomain.Count - 1)}
+                                     if ($messagesFromDomain.Count -eq 0) { $emailMenuLoopActive = $false } # Verlaat als er geen berichten meer zijn
+                                } else { # Domein is mogelijk verwijderd
+                                    $emailMenuLoopActive = $false # Verlaat dit menu
+                                }
+                            }
+                        } elseif ($chosenAction -like "Beheer ALLE e-mails*") {
+                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                            $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $domainName -AllMessages $messagesFromDomain
+                            if ($allMessagesWereModified -or -not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
+                                $emailMenuLoopActive = $false # Verlaat dit menu als domein weg is
+                            } else {
+                                # Herlaad berichtenlijst
+                                $messagesFromDomain = $Script:SenderCache[$normalizedDomainKey].Messages | Sort-Object ReceivedDateTime -Descending
+                                if ($selectedEmailIndex -ge $messagesFromDomain.Count) {$selectedEmailIndex = [Math]::Max(0, $messagesFromDomain.Count - 1)}
+                                if ($messagesFromDomain.Count -eq 0) { $emailMenuLoopActive = $false } # Verlaat als er geen berichten meer zijn
+                            }
+                        } elseif ($chosenAction -like "Terug*") {
+                            $emailMenuLoopActive = $false
+                        }
+                    }
+                    9 { # Tab - Wissel focus naar e-maillijst
+                        $currentFocusIsEmailList = $true
+                        # $selectedEmailIndex blijft behouden
+                    }
+                    27 { $emailMenuLoopActive = $false } # Escape
+                }
+                 if ($keyInfo.Character.ToString().ToUpper() -eq 'Q' -and $bottomMenuItems[$selectedActionIndex] -like "Terug*") { $emailMenuLoopActive = $false }
+            }
+             # Als er geen berichten meer zijn na een actie, verlaat de lus
+            if ($emailMenuLoopActive) { # Alleen controleren als we niet al besloten hebben te stoppen
+                if ($Script:SenderCache.ContainsKey($normalizedDomainKey)) {
+                    if ($Script:SenderCache[$normalizedDomainKey].Messages.Count -eq 0) { $emailMenuLoopActive = $false }
+                } else {
+                    $emailMenuLoopActive = $false # Domein is verwijderd
+                }
+            }
+        } # Einde $emailMenuLoopActive while
+    } # Einde hoofd while ($Script:SenderCache.ContainsKey...
+
     # Als de lus eindigt omdat het domein geen berichten meer heeft of niet meer in de cache is:
-    Write-Host "Geen (resterende) e-mails gevonden voor domein '$domainName' in de cache, of het domein is verwijderd uit de cache."
-    Read-Host "Druk op Enter om terug te keren naar het overzicht van domeinen."
-    # De functie retourneert nu, en Show-SenderOverview zal opnieuw de lijst van domeinen opbouwen.
+    # De aanroepende functie (Show-SenderOverview) zal de UI verder afhandelen.
 }
 
 # Helper functie om de body van een e-mail te tonen
@@ -708,7 +812,7 @@ function Perform-ActionOnSingleEmail {
                         Write-Error "Fout bij het verwijderen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
                     }
                 } else { Write-Host "Verwijderen geannuleerd." }
-                 Read-Host "Druk op Enter om door te gaan." # Tijdelijk, tot alle Read-Host weg zijn
+                # Read-Host "Druk op Enter om door te gaan." # Verwijderd
             } elseif ($actionToExecute -like "2. Verplaats*") {
                 $destinationFolderId = Get-MailFolderSelection -UserId $UserId # Deze moet ook interactief worden
                 if ($destinationFolderId) {
@@ -725,12 +829,12 @@ function Perform-ActionOnSingleEmail {
                         }
                     } else { Write-Host "Verplaatsen geannuleerd." }
                 } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
-                Read-Host "Druk op Enter om door te gaan." # Tijdelijk
+                # Read-Host "Druk op Enter om door te gaan." # Verwijderd
             } elseif ($actionToExecute -like "3. Terug*") {
                 # Do nothing, loop will exit
             } else {
                  Write-Warning "Ongeldige actie: $actionToExecute" # Zou niet moeten gebeuren
-                 Read-Host "Druk op Enter om door te gaan." # Tijdelijk
+                 # Read-Host "Druk op Enter om door te gaan." # Verwijderd
             }
         } # end if ($actionToExecute)
     } # end while ($actionLoopActive)
@@ -747,23 +851,94 @@ function Perform-ActionOnAllSenderEmails {
         [System.Collections.Generic.List[PSObject]]$AllMessages # Dit zijn alle berichten van het domein
     )
 
+    # CGA Kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White
+    $cgaWarningFgColor = [System.ConsoleColor]::Red
+
+    $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+    $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
-    Write-Host "Beheer ALLE e-mails van domein: $SenderDomain" # Tekst aangepast
+    
+    Write-Host "Beheer ALLE e-mails van domein: $SenderDomain"
     Write-Host "Aantal te verwerken e-mails: $($AllMessages.Count)"
     Write-Host "-------------------------------------------"
-    Write-Host "Kies een actie:"
-    Write-Host "1. Verwijder ALLE e-mails van deze afzender"
-    Write-Host "2. Verplaats ALLE e-mails van deze afzender"
-    Write-Host "3. Terug"
 
-    $choice = Read-Host "Uw keuze (1-3)"
-    $allProcessedSuccessfully = $true # Standaard aanname
+    $actionMenuItems = @(
+        "1. Verwijder ALLE e-mails van dit domein",
+        "2. Verplaats ALLE e-mails van dit domein",
+        "3. Terug (Esc/Q)"
+    )
+    $selectedActionItemIndex = 0
+    $actionLoopActive = $true
+    $actionToExecute = $null
+    $allProcessedSuccessfully = $true # Standaard aanname, wordt false bij fouten
 
-    switch ($choice) {
-        "1" {
-            $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' permanent wilt verwijderen? (ja/nee)" # Tekst aangepast
-            if ($confirm -eq 'ja') {
-                Write-Host "Starten met verwijderen van $($AllMessages.Count) e-mails van domein '$SenderDomain'..." # Tekst aangepast
+    while ($actionLoopActive) {
+        # Herteken alleen de actie-opties
+        $currentCursorPos = $Host.UI.RawUI.CursorPosition
+        # Zorg ervoor dat we niet te ver naar beneden schrijven als het scherm klein is.
+        # Voor nu, simpelweg opnieuw schrijven.
+        # Clear-Host hierbinnen is te veel, de context moet blijven.
+        # We moeten de prompt en opties op een bekende plek tekenen of de cursor beheren.
+        # Voor nu, gaan we ervan uit dat de Write-Host's hieronder ok zijn.
+
+        Write-Host "Kies een actie:" -ForegroundColor $cgaInstructionFgColor
+        for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
+            $itemText = $actionMenuItems[$i]
+            if ($i -eq $selectedActionItemIndex) {
+                Write-Host "> $($itemText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+            } else {
+                Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
+            }
+        }
+        Write-Host "Gebruik ↑/↓, Enter, Esc/Q" -ForegroundColor $cgaInstructionFgColor
+
+        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        
+        # Wis de vorige menu-opties (simpele aanpak: overschrijf met lege regels)
+        # Dit is lastig zonder precieze cursor controle. Voor nu, Clear-Host aan begin van lus.
+        # Clear-Host was al aan het begin van de functie.
+        # We moeten de opties overschrijven.
+        # Voor nu, de Clear-Host aan het begin van de functie zal het scherm leegmaken,
+        # en de lus zal het menu opnieuw tekenen.
+
+        switch ($keyInfo.VirtualKeyCode) {
+            38 { # UpArrow
+                $selectedActionItemIndex--
+                if ($selectedActionItemIndex -lt 0) { $selectedActionItemIndex = $actionMenuItems.Count - 1 }
+            }
+            40 { # DownArrow
+                $selectedActionItemIndex++
+                if ($selectedActionItemIndex -ge $actionMenuItems.Count) { $selectedActionItemIndex = 0 }
+            }
+            13 { # Enter
+                $actionToExecute = $actionMenuItems[$selectedActionItemIndex]
+                $actionLoopActive = $false # Verlaat de keuzelus
+            }
+            27 { # Escape
+                $actionToExecute = "3. Terug (Esc/Q)"
+                $actionLoopActive = $false
+            }
+            default {
+                $charPressed = $keyInfo.Character.ToString().ToUpper()
+                if ($charPressed -eq '1') { $selectedActionItemIndex = 0; $actionToExecute = $actionMenuItems[0]; $actionLoopActive = $false }
+                if ($charPressed -eq '2') { $selectedActionItemIndex = 1; $actionToExecute = $actionMenuItems[1]; $actionLoopActive = $false }
+                if ($charPressed -eq '3' -or $charPressed -eq 'Q') { $selectedActionItemIndex = 2; $actionToExecute = $actionMenuItems[2]; $actionLoopActive = $false }
+            }
+        }
+    } # Einde while ($actionLoopActive)
+
+    # Voer de gekozen actie uit
+    if ($actionToExecute) {
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor # Herstel kleuren voor de actie output
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+        Clear-Host # Maak scherm schoon voor de actie output
+
+        if ($actionToExecute -like "1. Verwijder*") {
+            if (Get-Confirmation -PromptMessage "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' permanent wilt verwijderen?") {
+                Write-Host "Starten met verwijderen van $($AllMessages.Count) e-mails van domein '$SenderDomain'..."
                 $processedCount = 0
                 $errorCount = 0
                 foreach ($message in $AllMessages) {
@@ -787,17 +962,19 @@ function Perform-ActionOnAllSenderEmails {
                 } elseif (($AllMessages.Count - $errorCount) -gt 0) { # Als sommigen zijn verwijderd, maar niet allen
                     # De cache moet individueel geüpdatet worden voor de succesvol verwijderde items.
                     # Dit is complexer; voor nu, informeer de gebruiker om opnieuw te indexeren.
-                    Write-Warning "Niet alle e-mails konden worden verwijderd. De cache voor deze afzender is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
+                    Write-Warning "Niet alle e-mails konden worden verwijderd. De cache voor dit domein is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
                 }
             } else { Write-Host "Verwijderen geannuleerd." }
-        }
-        "2" {
-            $destinationFolderId = Get-MailFolderSelection -UserId $UserId
+            # Wacht op Escape om terug te keren
+            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+
+        } elseif ($actionToExecute -like "2. Verplaats*") {
+            $destinationFolderId = Get-MailFolderSelection -UserId $UserId # Deze moet ook interactief worden
             if ($destinationFolderId) {
                 $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
-                $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)" # Tekst aangepast
-                if ($confirm -eq 'ja') {
-                    Write-Host "Starten met verplaatsen van $($AllMessages.Count) e-mails van domein '$SenderDomain' naar '$($destinationFolder.DisplayName)'..." # Tekst aangepast
+                if (Get-Confirmation -PromptMessage "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' wilt verplaatsen naar '$($destinationFolder.DisplayName)'?") {
+                    Write-Host "Starten met verplaatsen van $($AllMessages.Count) e-mails van domein '$SenderDomain' naar '$($destinationFolder.DisplayName)'..."
                     $processedCount = 0
                     $errorCount = 0
                     foreach ($message in $AllMessages) {
@@ -819,15 +996,27 @@ function Perform-ActionOnAllSenderEmails {
                         Update-SenderCache -DomainToUpdate $SenderDomain -RemoveAllMessagesFromDomain # Aangepast
                         return $true # Signaleer dat de domein entry mogelijk weg is
                     } elseif (($AllMessages.Count - $errorCount) -gt 0) {
-                         Write-Warning "Niet alle e-mails konden worden verplaatst. De cache voor dit domein is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht." # Tekst aangepast
+                         Write-Warning "Niet alle e-mails konden worden verplaatst. De cache voor dit domein is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
                     }
                 } else { Write-Host "Verplaatsen geannuleerd." }
             } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
+            # Wacht op Escape om terug te keren
+            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+
+        } elseif ($actionToExecute -like "3. Terug*") {
+            return $false # Terug, geen bulk actie uitgevoerd die de sender entry zou verwijderen
+        } else {
+            # Dit zou niet moeten gebeuren als $actionToExecute correct is ingesteld
+            Write-Warning "Ongeldige actie: $actionToExecute"
+            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
         }
-        "3" { return $false } # Terug, geen bulk actie uitgevoerd die de sender entry zou verwijderen
-        default { Write-Warning "Ongeldige keuze." }
+    } else { # Geen actie gekozen (bijv. Escape in het actiemenu)
+        return $false
     }
-    Read-Host "Druk op Enter om terug te keren."
+    
+    # Read-Host "Druk op Enter om terug te keren." # Verwijderd
     return (-not $allProcessedSuccessfully) # Als er fouten waren, is de sender entry mogelijk nog (deels) relevant
 }
 
@@ -1007,57 +1196,112 @@ function Get-MailFolderSelection {
     param (
         [string]$UserId
     )
+
+    # CGA Kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White; $cgaWarningFgColor = [System.ConsoleColor]::Red
+    
+    $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+    $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
+    
     Write-Host "Selecteer een doelmap:"
     Write-Host "-----------------------"
     try {
-        # Haal alle mappen op, inclusief submappen (standaard gedrag van Get-MgUserMailFolder -All)
-        # Sorteer op DisplayName voor consistentie
-        $mailFolders = Get-MgUserMailFolder -UserId $UserId -All -ErrorAction Stop | Sort-Object DisplayName
+        $allMailFolders = Get-MgUserMailFolder -UserId $UserId -All -ErrorAction Stop | Sort-Object DisplayName
         
-        if ($null -eq $mailFolders -or $mailFolders.Count -eq 0) {
+        if ($null -eq $allMailFolders -or $allMailFolders.Count -eq 0) {
             Write-Warning "Geen mailmappen gevonden voor gebruiker $UserId."
+            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
             return $null
         }
 
-        $folderOptions = @{}
-        $i = 1
-        Write-Host "Beschikbare mappen:"
-        foreach ($folder in $mailFolders) {
-            # Toon pad voor submappen voor duidelijkheid
-            $displayPath = $folder.DisplayName
+        # Bouw een lijst van mappen met hun volledige pad voor weergave
+        $displayFolders = @()
+        foreach ($folder in $allMailFolders) {
+            $pathParts = @($folder.DisplayName)
             $currentParentId = $folder.ParentFolderId
-            $tempFolder = $folder # Om de originele folder niet te wijzigen
             while ($currentParentId) {
-                $parentFolder = $mailFolders | Where-Object {$_.Id -eq $currentParentId} | Select-Object -First 1
+                $parentFolder = $allMailFolders | Where-Object {$_.Id -eq $currentParentId} | Select-Object -First 1
                 if ($parentFolder) {
-                    $displayPath = "$($parentFolder.DisplayName) / $displayPath"
+                    $pathParts.Insert(0, $parentFolder.DisplayName)
                     $currentParentId = $parentFolder.ParentFolderId
                 } else {
-                    $currentParentId = $null # Voorkom oneindige loop als ouder niet in de lijst staat
+                    $currentParentId = $null # Ouder niet gevonden in de lijst, stop
                 }
             }
-
-            Write-Host "$i. $displayPath (ID: $($folder.Id))"
-            $folderOptions[$i] = $folder.Id
-            $i++
-        }
-        Write-Host "-----------------------"
-        Write-Host "C. Annuleren"
-
-        while ($true) {
-            $choice = Read-Host "Kies een mapnummer (of C om te annuleren)"
-            if ($choice -eq 'C' -or $choice -eq 'c') {
-                return $null
-            }
-            if ($folderOptions.ContainsKey($choice)) {
-                return $folderOptions[$choice]
-            } else {
-                Write-Warning "Ongeldige keuze. Probeer opnieuw."
+            $displayFolders += [PSCustomObject]@{
+                Id = $folder.Id
+                DisplayPath = $pathParts -join " / "
             }
         }
+        # Sorteer op het volledige pad
+        $sortedDisplayFolders = $displayFolders | Sort-Object DisplayPath
+
+        $selectedFolderIndex = 0
+        $folderLoopActive = $true
+
+        while ($folderLoopActive) {
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host # Herteken het hele menu elke keer
+
+            Write-Host "Selecteer een doelmap:" -ForegroundColor $cgaInstructionFgColor
+            Write-Host "----------------------------------------------------------------------"
+            Write-Host ("{0,-5} {1}" -f "#", "Map Pad")
+            Write-Host "----------------------------------------------------------------------"
+
+            for ($i = 0; $i -lt $sortedDisplayFolders.Count; $i++) {
+                $folderEntry = $sortedDisplayFolders[$i]
+                $itemNumber = $i + 1
+                $lineText = "{0,-5} {1}" -f "$itemNumber.", $folderEntry.DisplayPath
+                
+                if ($i -eq $selectedFolderIndex) {
+                    Write-Host $lineText -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                } else {
+                    Write-Host $lineText
+                }
+            }
+            Write-Host "----------------------------------------------------------------------"
+            Write-Host "Gebruik ↑/↓, Enter om te selecteren, Esc/Q om te annuleren." -ForegroundColor $cgaInstructionFgColor
+
+            $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+
+            switch ($keyInfo.VirtualKeyCode) {
+                38 { # UpArrow
+                    $selectedFolderIndex--
+                    if ($selectedFolderIndex -lt 0) { $selectedFolderIndex = $sortedDisplayFolders.Count - 1 }
+                }
+                40 { # DownArrow
+                    $selectedFolderIndex++
+                    if ($selectedFolderIndex -ge $sortedDisplayFolders.Count) { $selectedFolderIndex = 0 }
+                }
+                13 { # Enter
+                    return $sortedDisplayFolders[$selectedFolderIndex].Id
+                }
+                27 { # Escape
+                    return $null # Annuleren
+                }
+                default {
+                    $charPressed = $keyInfo.Character.ToString().ToUpper()
+                    if ($charPressed -eq 'Q') {
+                        return $null # Annuleren
+                    } elseif ($charPressed -match "^\d+$") {
+                        $numChoice = [int]$charPressed
+                        if ($numChoice -ge 1 -and $numChoice -le $sortedDisplayFolders.Count) {
+                            return $sortedDisplayFolders[$numChoice - 1].Id
+                        }
+                    }
+                }
+            }
+        } # Einde while ($folderLoopActive)
+
     } catch {
         Write-Error "Fout bij het ophalen van mailmappen: $($_.Exception.Message)"
+        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
         return $null
     }
 }
