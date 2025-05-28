@@ -1104,23 +1104,18 @@ function Show-MainMenu {
     param (
         [string]$UserEmail
     )
-    Clear-Host
-    
-    # Sla huidige kleuren op
+    # Sla huidige consolekleuren op
     $originalForegroundColor = $Host.UI.RawUI.ForegroundColor
     $originalBackgroundColor = $Host.UI.RawUI.BackgroundColor
 
-    # Stel NC-achtige kleuren in
-    $menuForegroundColor = "White"
-    $menuBackgroundColor = "DarkBlue"
-    $promptForegroundColor = "Yellow"
-    $Host.UI.RawUI.ForegroundColor = $menuForegroundColor
-    $Host.UI.RawUI.BackgroundColor = $menuBackgroundColor
-    Clear-Host # Opnieuw clearen met de nieuwe achtergrondkleur
+    # Definieer CGA-kleurenschema
+    $cgaBgColor = [System.ConsoleColor]::Black
+    $cgaFgColor = [System.ConsoleColor]::Green         # Lichtgroen voor standaard tekst
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green # Achtergrond voor geselecteerd item
+    $cgaSelectedFgColor = [System.ConsoleColor]::Black # Tekstkleur voor geselecteerd item
+    $cgaInstructionFgColor = [System.ConsoleColor]::White # Voor instructietekst
 
-    # Menu content
-    $title = "OutlookBuddy - Hoofdmenu voor $UserEmail"
-    $separator = "------------------------------------------"
+    # Menu-items en bijbehorende actiecodes
     $menuItems = @(
         "1. Indexeer mailbox",
         "2. Overzicht van verzenders",
@@ -1129,83 +1124,130 @@ function Show-MainMenu {
         "5. Leeg 'Verwijderde Items'",
         "Q. Afsluiten"
     )
+    $actionCodes = "1", "2", "3", "4", "5", "Q"
     
-    $menuContent = @($title) + @($separator) + $menuItems + @($separator)
-    
-    # Bepaal de breedte van het menu (langste regel)
-    $menuWidth = 0
-    foreach ($line in $menuContent) {
-        if ($line.Length -gt $menuWidth) {
-            $menuWidth = $line.Length
+    $selectedItemIndex = 0
+    $menuLoopActive = $true
+
+    while ($menuLoopActive) {
+        # Stel CGA-kleuren in voor het menu
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+        Clear-Host
+
+        # Menu content
+        $title = "OutlookBuddy - Hoofdmenu voor $UserEmail"
+        $separator = "------------------------------------------"
+        $instructionText = "Gebruik ↑/↓ om te selecteren, Enter om te kiezen, Esc om af te sluiten."
+
+        # Bouw de volledige menu-inhoud voor breedteberekening
+        $tempMenuContentForWidth = @($title) + @($separator) + $menuItems + @($separator) + @($instructionText)
+        
+        $menuWidth = 0
+        foreach ($line in $tempMenuContentForWidth) {
+            if ($line.Length -gt $menuWidth) {
+                $menuWidth = $line.Length
+            }
         }
-    }
-    # Voeg wat extra padding toe voor de esthetiek
-    $frameWidth = $menuWidth + 4 
-    $consoleWidth = $Host.UI.RawUI.WindowSize.Width
-    $leftPaddingSpaces = [Math]::Max(0, ($consoleWidth - $frameWidth) / 2)
-    $leftPadding = " " * $leftPaddingSpaces
+        $frameWidth = $menuWidth + 4 
+        $consoleWidth = $Host.UI.RawUI.WindowSize.Width
+        $leftPaddingSpaces = [Math]::Max(0, ($consoleWidth - $frameWidth) / 2)
+        $leftPadding = " " * $leftPaddingSpaces
+        $innerFramePadding = "  "
 
-    # Bereken verticale positionering (simpele aanpak: een paar lege regels bovenaan)
-    $topPaddingLines = 3
-    1..$topPaddingLines | ForEach-Object { Write-Host "" -BackgroundColor $menuBackgroundColor }
+        # Verticale padding
+        $topPaddingLines = 3
+        1..$topPaddingLines | ForEach-Object { Write-Host "" } # Gebruikt huidige achtergrondkleur
 
-    # Teken het menu
-    $innerFramePadding = "  " # Twee spaties links en rechts binnen het kader
-    foreach ($lineText in $menuContent) {
-        $lineContentToShow = ($innerFramePadding + $lineText).PadRight($frameWidth - $innerFramePadding.Length) + $innerFramePadding
-        # Zorg ervoor dat de totale lijn de $frameWidth heeft voor een solide achtergrond
-        $lineContentToShow = $lineContentToShow.PadRight($frameWidth) 
-        Write-Host "$leftPadding$lineContentToShow" -ForegroundColor $menuForegroundColor -BackgroundColor $menuBackgroundColor
-    }
+        # Teken titel en bovenste separator
+        Write-Host ($leftPadding + $innerFramePadding + $title.PadRight($menuWidth) + $innerFramePadding)
+        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
+
+        # Teken menu-items
+        for ($i = 0; $i -lt $menuItems.Count; $i++) {
+            $itemText = $menuItems[$i]
+            $lineContent = $innerFramePadding + $itemText.PadRight($menuWidth) + $innerFramePadding
+            
+            if ($i -eq $selectedItemIndex) {
+                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+            } else {
+                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaFgColor -BackgroundColor $cgaBgColor
+            }
+        }
+
+        # Teken onderste separator en instructies
+        Write-Host ($leftPadding + $innerFramePadding + $separator.PadRight($menuWidth) + $innerFramePadding)
+        Write-Host ($leftPadding + $innerFramePadding + $instructionText.PadRight($menuWidth) + $innerFramePadding) -ForegroundColor $cgaInstructionFgColor
+
+        # Wacht op toetsaanslag
+        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $choiceToProcess = $null
+
+        # Verwerk toetsaanslag
+        switch ($keyInfo.VirtualKeyCode) {
+            38 { # UpArrow
+                $selectedItemIndex--
+                if ($selectedItemIndex -lt 0) { $selectedItemIndex = $menuItems.Count - 1 }
+            }
+            40 { # DownArrow
+                $selectedItemIndex++
+                if ($selectedItemIndex -ge $menuItems.Count) { $selectedItemIndex = 0 }
+            }
+            13 { # Enter
+                $choiceToProcess = $actionCodes[$selectedItemIndex]
+            }
+            27 { # Escape
+                $choiceToProcess = "Q" # Behandel Escape als Afsluiten in hoofdmenu
+            }
+            default {
+                # Verwerk directe numerieke/letterkeuze
+                $charPressed = $keyInfo.Character.ToString().ToUpper()
+                if ($actionCodes -contains $charPressed) {
+                    $choiceToProcess = $charPressed
+                    # Update selectedItemIndex om overeen te komen met de directe keuze
+                    $selectedItemIndex = [array]::IndexOf($actionCodes, $charPressed)
+                }
+            }
+        }
+
+        if ($choiceToProcess) {
+            # Herstel originele kleuren voordat een subactie wordt uitgevoerd
+            $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
+            $Host.UI.RawUI.BackgroundColor = $originalBackgroundColor
+            Clear-Host # Maak scherm schoon met originele kleuren voor de subactie
+
+            switch ($choiceToProcess) {
+                "1" { Index-Mailbox -UserId $UserEmail }
+                "2" { Show-SenderOverview -UserId $UserEmail }
+                "3" { Manage-EmailsBySender -UserId $UserEmail }
+                "4" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent }
+                "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
+                "Q" {
+                    Write-Host "Afsluiten..."
+                    $menuLoopActive = $false # Stop de menulus
+                    # Kleuren worden hersteld door de finally block van het script of net hieronder
+                }
+                default {
+                    # Dit zou niet moeten gebeuren als $choiceToProcess correct is ingesteld
+                    Write-Warning "Onbekende actie: $choiceToProcess"
+                    Read-Host "Druk op Enter om door te gaan"
+                }
+            }
+            
+            if (-not $menuLoopActive) { # Als 'Q' is gekozen
+                 # Herstel kleuren expliciet hier ook voor het geval de finally block niet direct volgt
+                $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
+                $Host.UI.RawUI.BackgroundColor = $originalBackgroundColor
+                return $false # Signaleer om de hoofdscriptlus te stoppen
+            }
+            # Na de subactie (als niet Q), worden CGA-kleuren opnieuw ingesteld aan het begin van de volgende while-lus iteratie.
+        }
+    } # Einde while ($menuLoopActive)
     
-    # Prompt
-    $promptText = "Kies een optie: "
-    # Lege regel voor de prompt, binnen het kader
-    Write-Host ($leftPadding + $innerFramePadding + (" " * $menuWidth) + $innerFramePadding).PadRight($leftPaddingSpaces + $frameWidth) -BackgroundColor $menuBackgroundColor
-    
-    # Herstel kleuren VOORDAT Read-Host wordt aangeroepen, zodat de input en subfuncties normale kleuren hebben
+    # Mocht de lus op een andere manier eindigen (zou niet moeten), herstel kleuren.
     $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
     $Host.UI.RawUI.BackgroundColor = $originalBackgroundColor
-    # Clear-Host # Optioneel: clear scherm na menu keuze. Voor nu niet, zodat het menu zichtbaar blijft bij de prompt.
-    # Echter, de achtergrond van de console is nu hersteld. Om de "blauwe box" look te behouden voor de prompt regel:
-    # Print de prompt regel opnieuw met de blauwe achtergrond maar gele tekst voor de prompt zelf.
-    
-    $currentCursorPos = $Host.UI.RawUI.CursorPosition # Onthoud cursor Y
-    $promptLineY = $currentCursorPos.Y 
-    
-    # Print de prompt-regel met de juiste achtergrond en stel de cursor in
-    $promptDisplayLine = $leftPadding + $innerFramePadding + $promptText
-    Write-Host $promptDisplayLine -NoNewline -ForegroundColor $promptForegroundColor -BackgroundColor $menuBackgroundColor
-    
-    # Vul de rest van de lijn met de menu achtergrondkleur
-    $remainingSpace = $frameWidth - ($innerFramePadding.Length + $promptText.Length + $innerFramePadding.Length)
-    if ($remainingSpace -gt 0) {
-        Write-Host (" " * $remainingSpace) -NoNewline -BackgroundColor $menuBackgroundColor
-    }
-    Write-Host $innerFramePadding.PadRight($innerFramePadding.Length) -BackgroundColor $menuBackgroundColor # Rechter padding van het frame
-
-    # $Host.UI.RawUI.CursorPosition moet na de Write-Host -NoNewline zijn
-    $Host.UI.RawUI.CursorPosition = @{ X = $promptDisplayLine.Length; Y = $promptLineY }
-
-    $choice = Read-Host
-
-    # Kleuren zijn al hersteld.
-    # Clear-Host hier als je wilt dat het menu verdwijnt na de keuze.
-    # Clear-Host 
-
-    switch ($choice) {
-        "1" { Index-Mailbox -UserId $UserEmail }
-        "2" { Show-SenderOverview -UserId $UserEmail }
-        "3" { Manage-EmailsBySender -UserId $UserEmail }
-        "4" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent } # $TestRun.IsPresent doorgeven
-        "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
-        "Q" { Write-Host "Afsluiten..."; return $false } # Signal to exit loop
-        default {
-            Write-Warning "Ongeldige keuze. Probeer opnieuw."
-            Read-Host "Druk op Enter om door te gaan"
-        }
-    }
-    return $true # Signal to continue loop
+    return $true # Standaard, als de lus eindigt, ga door (hoewel Q $false retourneert)
 }
 
 try {
