@@ -702,22 +702,98 @@ function Empty-DeletedItemsFolder {
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
+function Write-CenteredLine {
+    param(
+        [string]$Text,
+        [int]$TotalWidth,
+        [string]$ForegroundColor = "White",
+        [string]$BackgroundColor = "DarkBlue"
+    )
+    $paddingLength = [Math]::Max(0, ($TotalWidth - $Text.Length) / 2)
+    $padding = " " * $paddingLength
+    Write-Host "$padding$Text" -ForegroundColor $ForegroundColor -BackgroundColor $BackgroundColor
+}
+
 function Show-MainMenu {
     param (
         [string]$UserEmail
     )
     Clear-Host
-    Write-Host "OutlookBuddy - Hoofdmenu voor $UserEmail"
-    Write-Host "------------------------------------------"
-    Write-Host "1. Indexeer mailbox"
-    Write-Host "2. Overzicht van verzenders"
-    Write-Host "3. Beheer mails van specifieke afzender"
-    Write-Host "4. Zoek naar een mail"
-    Write-Host "5. Leeg 'Verwijderde Items'"
-    Write-Host "Q. Afsluiten"
-    Write-Host "------------------------------------------"
+    
+    # Sla huidige kleuren op
+    $originalForegroundColor = $Host.UI.RawUI.ForegroundColor
+    $originalBackgroundColor = $Host.UI.RawUI.BackgroundColor
 
-    $choice = Read-Host "Kies een optie"
+    # Stel NC-achtige kleuren in
+    $menuForegroundColor = "White"
+    $menuBackgroundColor = "DarkBlue"
+    $promptForegroundColor = "Yellow"
+    $Host.UI.RawUI.ForegroundColor = $menuForegroundColor
+    $Host.UI.RawUI.BackgroundColor = $menuBackgroundColor
+    Clear-Host # Opnieuw clearen met de nieuwe achtergrondkleur
+
+    # Menu content
+    $title = "OutlookBuddy - Hoofdmenu voor $UserEmail"
+    $separator = "------------------------------------------"
+    $menuItems = @(
+        "1. Indexeer mailbox",
+        "2. Overzicht van verzenders",
+        "3. Beheer mails van specifieke afzender",
+        "4. Zoek naar een mail",
+        "5. Leeg 'Verwijderde Items'",
+        "Q. Afsluiten"
+    )
+    
+    $menuContent = @($title) + @($separator) + $menuItems + @($separator)
+    
+    # Bepaal de breedte van het menu (langste regel)
+    $menuWidth = 0
+    foreach ($line in $menuContent) {
+        if ($line.Length -gt $menuWidth) {
+            $menuWidth = $line.Length
+        }
+    }
+    # Voeg wat extra padding toe voor de esthetiek
+    $frameWidth = $menuWidth + 4 
+    $consoleWidth = $Host.UI.RawUI.WindowSize.Width
+    $leftPaddingSpaces = [Math]::Max(0, ($consoleWidth - $frameWidth) / 2)
+    $leftPadding = " " * $leftPaddingSpaces
+
+    # Bereken verticale positionering (simpele aanpak: een paar lege regels bovenaan)
+    $topPaddingLines = 3
+    1..$topPaddingLines | ForEach-Object { Write-Host "" -BackgroundColor $menuBackgroundColor }
+
+    # Teken het menu
+    foreach ($lineText in $menuContent) {
+        $paddedLine = (" " * (($frameWidth - $lineText.Length) / 2)) + $lineText
+        $paddedLine = $paddedLine.PadRight($frameWidth) # Zorg dat alle regels even lang zijn voor de achtergrondkleur
+        Write-Host "$leftPadding$paddedLine" -ForegroundColor $menuForegroundColor -BackgroundColor $menuBackgroundColor
+    }
+    
+    # Prompt
+    $promptText = "Kies een optie: "
+    $fullPromptLine = $leftPadding + (" " * (($frameWidth - $promptText.Length) / 2)) + $promptText
+    
+    # Zet cursor op de juiste plek voor Read-Host en herstel kleuren voor de input zelf
+    $Host.UI.RawUI.ForegroundColor = $promptForegroundColor
+    $Host.UI.RawUI.BackgroundColor = $menuBackgroundColor # Achtergrond blijft blauw voor de prompt
+    
+    # Lege regel voor de prompt
+    Write-Host "$leftPadding$(' ' * $frameWidth)" -BackgroundColor $menuBackgroundColor
+    
+    # We moeten de cursorpositie instellen voor Read-Host
+    $currentCursorPos = $Host.UI.RawUI.CursorPosition
+    $Host.UI.RawUI.CursorPosition = @{
+        X = ($leftPadding + (" " * (($frameWidth - $promptText.Length) / 2))).Length
+        Y = $currentCursorPos.Y 
+    }
+    
+    $choice = Read-Host -Prompt $promptText
+
+    # Herstel originele kleuren
+    $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
+    $Host.UI.RawUI.BackgroundColor = $originalBackgroundColor
+    # Clear-Host # Optioneel: clear scherm na menu keuze, of laat het staan. Voor nu laten we het staan.
 
     switch ($choice) {
         "1" { Index-Mailbox -UserId $UserEmail }
