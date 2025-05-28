@@ -190,8 +190,9 @@ function Show-SenderOverview {
         Clear-Host
         Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
         Write-Host "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen." -ForegroundColor $cgaWarningFgColor
-        $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor # Voor Read-Host prompt
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
+        Write-Host "Druk op Escape of Q om terug te keren." # Aangepast van Read-Host
+        while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
         # Kleuren worden hersteld door Show-MainMenu
         return
     }
@@ -214,7 +215,8 @@ function Show-SenderOverview {
         Clear-Host
         Write-Host "Geen domeinen gevonden in de cache."
         $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        Write-Host "Druk op Escape of Q om terug te keren." # Aangepast van Read-Host
+        while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
         return
     }
     
@@ -411,7 +413,8 @@ function Get-Confirmation {
         }
         Write-Host "" # Nieuwe regel na de opties
 
-        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
 
         switch ($keyInfo.VirtualKeyCode) {
             37 { # LeftArrow
@@ -522,7 +525,8 @@ function Show-EmailsFromSelectedSender {
         if ($messagesFromDomain.Count -eq 0) {
             Write-Host "Geen e-mails (meer) in de cache voor domein '$domainName'." -ForegroundColor $cgaInstructionFgColor
             Write-Host "Druk op Escape of Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($true){ $key = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            while($true){ $key = $Host.UI.RawUI.ReadKey($readKeyOptions); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
             return
         }
 
@@ -570,7 +574,8 @@ function Show-EmailsFromSelectedSender {
             Write-Host "-------------------------------------------------------------------------------------------------------------------"
 
             # Wacht op toetsaanslag
-            $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
 
             if ($currentFocusIsEmailList) {
                 switch ($keyInfo.VirtualKeyCode) {
@@ -716,7 +721,8 @@ function Show-EmailBody {
     Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
 
     while ($true) {
-        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
         if ($keyInfo.VirtualKeyCode -eq 27) { # Escape
             break
         }
@@ -764,7 +770,8 @@ function Perform-ActionOnSingleEmail {
             }
         }
 
-        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
         $actionToExecute = $null
 
         switch ($keyInfo.VirtualKeyCode) {
@@ -895,7 +902,8 @@ function Perform-ActionOnAllSenderEmails {
         }
         Write-Host "Gebruik ↑/↓, Enter, Esc/Q" -ForegroundColor $cgaInstructionFgColor
 
-        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
         
         # Wis de vorige menu-opties (simpele aanpak: overschrijf met lege regels)
         # Dit is lastig zonder precieze cursor controle. Voor nu, Clear-Host aan begin van lus.
@@ -967,7 +975,8 @@ function Perform-ActionOnAllSenderEmails {
             } else { Write-Host "Verwijderen geannuleerd." }
             # Wacht op Escape om terug te keren
             Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
 
         } elseif ($actionToExecute -like "2. Verplaats*") {
             $destinationFolderId = Get-MailFolderSelection -UserId $UserId # Deze moet ook interactief worden
@@ -1002,7 +1011,8 @@ function Perform-ActionOnAllSenderEmails {
             } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
             # Wacht op Escape om terug te keren
             Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
 
         } elseif ($actionToExecute -like "3. Terug*") {
             return $false # Terug, geen bulk actie uitgevoerd die de sender entry zou verwijderen
@@ -1010,7 +1020,8 @@ function Perform-ActionOnAllSenderEmails {
             # Dit zou niet moeten gebeuren als $actionToExecute correct is ingesteld
             Write-Warning "Ongeldige actie: $actionToExecute"
             Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
         }
     } else { # Geen actie gekozen (bijv. Escape in het actiemenu)
         return $false
@@ -1214,7 +1225,8 @@ function Get-MailFolderSelection {
         if ($null -eq $allMailFolders -or $allMailFolders.Count -eq 0) {
             Write-Warning "Geen mailmappen gevonden voor gebruiker $UserId."
             Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
             return $null
         }
 
@@ -1267,7 +1279,8 @@ function Get-MailFolderSelection {
             Write-Host "----------------------------------------------------------------------"
             Write-Host "Gebruik ↑/↓, Enter om te selecteren, Esc/Q om te annuleren." -ForegroundColor $cgaInstructionFgColor
 
-            $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
 
             switch ($keyInfo.VirtualKeyCode) {
                 38 { # UpArrow
@@ -1301,7 +1314,8 @@ function Get-MailFolderSelection {
     } catch {
         Write-Error "Fout bij het ophalen van mailmappen: $($_.Exception.Message)"
         Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-        while($Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true}).VirtualKeyCode -ne 27) {}
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
         return $null
     }
 }
