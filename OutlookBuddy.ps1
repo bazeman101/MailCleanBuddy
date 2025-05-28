@@ -406,6 +406,46 @@ function Search-Mail {
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
+function Empty-DeletedItemsFolder {
+    param($UserId)
+    Clear-Host
+    Write-Host "Legen van de map 'Verwijderde Items' voor $UserId"
+    Write-Host "----------------------------------------------------"
+
+    $confirmation = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE items in de map 'Verwijderde Items' permanent wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt. (ja/nee)"
+    if ($confirmation -ne 'ja') {
+        Write-Host "Legen van 'Verwijderde Items' geannuleerd."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
+
+    try {
+        # Haal de 'deleteditems' folder op. Dit is een well-known name.
+        $deletedItemsFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId "deleteditems" -ErrorAction Stop
+        
+        if (-not $deletedItemsFolder) {
+            Write-Warning "Kon de map 'Verwijderde Items' niet vinden."
+            Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+            return
+        }
+
+        Write-Host "Bezig met het legen van de map '$($deletedItemsFolder.DisplayName)'..."
+        
+        # Gebruik Invoke-MgEmptyUserMailFolder om de map te legen
+        Invoke-MgEmptyUserMailFolder -UserId $UserId -MailFolderId $deletedItemsFolder.Id -ErrorAction Stop
+        
+        Write-Host "De map '$($deletedItemsFolder.DisplayName)' is succesvol geleegd."
+        Write-Warning "De lokale cache (indien gebruikt voor 'Verwijderde Items', wat momenteel niet het geval is) is mogelijk niet meer accuraat. Overweeg opnieuw te indexeren indien nodig."
+
+    } catch {
+        Write-Error "Fout tijdens het legen van de map 'Verwijderde Items': $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
 function Show-MainMenu {
     param (
         [string]$UserEmail
@@ -417,6 +457,7 @@ function Show-MainMenu {
     Write-Host "2. Overzicht van verzenders"
     Write-Host "3. Beheer mails van specifieke afzender"
     Write-Host "4. Zoek naar een mail"
+    Write-Host "5. Leeg 'Verwijderde Items'"
     Write-Host "Q. Afsluiten"
     Write-Host "------------------------------------------"
 
@@ -427,6 +468,7 @@ function Show-MainMenu {
         "2" { Show-SenderOverview -UserId $UserEmail }
         "3" { Manage-EmailsBySender -UserId $UserEmail }
         "4" { Search-Mail -UserId $UserEmail }
+        "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
         "Q" { Write-Host "Afsluiten..."; return $false } # Signal to exit loop
         default {
             Write-Warning "Ongeldige keuze. Probeer opnieuw."
