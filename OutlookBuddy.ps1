@@ -183,9 +183,60 @@ function Show-SenderOverview {
     $cgaSelectedFgColor = [System.ConsoleColor]::Black
     $cgaInstructionFgColor = [System.ConsoleColor]::White
     $cgaWarningFgColor = [System.ConsoleColor]::Red
+    $cgaSpaceSelectedPrefixColor = [System.ConsoleColor]::Yellow # Hoewel niet gebruikt voor spatie, kan voor andere indicators
 
-    if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
-        $Host.UI.RawUI.ForegroundColor = $cgaWarningFgColor
+    # Functie-specifieke variabelen voor UI
+    $selectedItemIndex = 0 # Index in de $sortedDomains array
+    $topDisplayIndex = 0    # Index van het eerste domein dat getoond wordt in het venster
+    $displayLines = 30      # Maximaal aantal domeinen tegelijk op het scherm
+
+    # Hoofd lus voor dit menu
+    $overviewLoopActive = $true
+    while ($overviewLoopActive) {
+        # Data laden en sorteren binnen de lus, zodat het ververst na acties
+        if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
+            $Host.UI.RawUI.ForegroundColor = $cgaWarningFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host
+            Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
+            Write-Host "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen." -ForegroundColor $cgaWarningFgColor
+            $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
+            Write-Host "Druk op Escape of Q om terug te keren."
+            while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
+            return # Terug naar hoofdmenu
+        }
+
+        $domainList = @()
+        foreach ($domainKey in $Script:SenderCache.Keys) {
+            $domainList += [PSCustomObject]@{
+                Domain = $domainKey
+                Name   = $Script:SenderCache[$domainKey].Name # Dit is ook het domein
+                Count  = $Script:SenderCache[$domainKey].Count
+                Messages = $Script:SenderCache[$domainKey].Messages # Behoud de berichtenlijst voor acties
+            }
+        }
+        $sortedDomains = $domainList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Domain
+
+        if ($sortedDomains.Count -eq 0) {
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host
+            Write-Host "Geen domeinen (meer) gevonden in de cache."
+            $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
+            Write-Host "Druk op Escape of Q om terug te keren."
+            while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
+            return # Terug naar hoofdmenu
+        }
+        
+        # Zorg ervoor dat selectie en view binnen grenzen blijven na data herladen
+        $selectedItemIndex = [Math]::Max(0, [Math]::Min($selectedItemIndex, $sortedDomains.Count - 1))
+        $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $sortedDomains.Count - $displayLines))
+        if ($topDisplayIndex < 0) {$topDisplayIndex = 0}
+        if ($selectedItemIndex < $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex }
+        if ($selectedItemIndex >= $topDisplayIndex + $displayLines) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 }
+
+
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
         Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
@@ -1309,11 +1360,13 @@ function Perform-ActionOnSingleEmail {
 # Nieuwe functie voor acties op ALLE e-mails van een afzender (vanuit de cache)
 function Perform-ActionOnAllSenderEmails {
     [CmdletBinding()]
-    [OutputType([bool])] # OutputType was hier al, maar stond verkeerd in eerdere diff. Nu correct geplaatst.
+    [OutputType([bool])] 
     param (
         [string]$UserId,
-        [string]$SenderDomain, # Aangepast van SenderEmail naar SenderDomain
-        [System.Collections.Generic.List[PSObject]]$AllMessages # Dit zijn alle berichten van het domein
+        [string]$SenderDomain, 
+        [System.Collections.Generic.List[PSObject]]$AllMessages,
+        [ValidateSet("Delete", "Move")]
+        [string]$DirectAction = $null # Nieuwe parameter voor directe actie
     )
 
     # CGA Kleuren
@@ -1344,64 +1397,64 @@ function Perform-ActionOnAllSenderEmails {
     $domainHeader = "Beheer ALLE e-mails van domein: $SenderDomain"
     $countHeader = "Aantal te verwerken e-mails: $($AllMessages.Count)"
 
-
-    while ($actionLoopActive) {
-        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-        Clear-Host # Wis het scherm aan het begin van elke lus-iteratie
-
-        # Herteken de statische informatie
-        Write-Host $domainHeader
-        Write-Host $countHeader
-        Write-Host "-------------------------------------------"
-        
-        # Herteken het menu
-        Write-Host "Kies een actie:" -ForegroundColor $cgaInstructionFgColor
-        for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
-            $itemText = $actionMenuItems[$i]
-            if ($i -eq $selectedActionItemIndex) {
-                Write-Host "> $($itemText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
-            } else {
-                Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
-            }
+    if ($DirectAction) {
+        if ($DirectAction -eq "Delete") {
+            $actionToExecute = $actionMenuItems[0] # "1. Verwijder..."
+        } elseif ($DirectAction -eq "Move") {
+            $actionToExecute = $actionMenuItems[1] # "2. Verplaats..."
         }
-        Write-Host "Gebruik ↑/↓, Enter, Esc/Q" -ForegroundColor $cgaInstructionFgColor
+    } else { # Geen directe actie, toon menu
+        while ($actionLoopActive) {
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host # Wis het scherm aan het begin van elke lus-iteratie
 
-        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
-        
-        # Wis de vorige menu-opties (simpele aanpak: overschrijf met lege regels)
-        # Dit is lastig zonder precieze cursor controle. Voor nu, Clear-Host aan begin van lus.
-        # Clear-Host was al aan het begin van de functie.
-        # We moeten de opties overschrijven.
-        # Voor nu, de Clear-Host aan het begin van de functie zal het scherm leegmaken,
-        # en de lus zal het menu opnieuw tekenen.
+            # Herteken de statische informatie
+            Write-Host $domainHeader
+            Write-Host $countHeader
+            Write-Host "-------------------------------------------"
+            
+            # Herteken het menu
+            Write-Host "Kies een actie:" -ForegroundColor $cgaInstructionFgColor
+            for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
+                $itemText = $actionMenuItems[$i]
+                if ($i -eq $selectedActionItemIndex) {
+                    Write-Host "> $($itemText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                } else {
+                    Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
+                }
+            }
+            Write-Host "Gebruik ↑/↓, Enter, Esc/Q" -ForegroundColor $cgaInstructionFgColor
 
-        switch ($keyInfo.VirtualKeyCode) {
-            38 { # UpArrow
-                $selectedActionItemIndex--
-                if ($selectedActionItemIndex -lt 0) { $selectedActionItemIndex = $actionMenuItems.Count - 1 }
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
+            
+            switch ($keyInfo.VirtualKeyCode) {
+                38 { # UpArrow
+                    $selectedActionItemIndex--
+                    if ($selectedActionItemIndex -lt 0) { $selectedActionItemIndex = $actionMenuItems.Count - 1 }
+                }
+                40 { # DownArrow
+                    $selectedActionItemIndex++
+                    if ($selectedActionItemIndex -ge $actionMenuItems.Count) { $selectedActionItemIndex = 0 }
+                }
+                13 { # Enter
+                    $actionToExecute = $actionMenuItems[$selectedActionItemIndex]
+                    $actionLoopActive = $false # Verlaat de keuzelus
+                }
+                27 { # Escape
+                    $actionToExecute = "3. Terug (Esc/Q)"
+                    $actionLoopActive = $false
+                }
+                default {
+                    $charPressed = $keyInfo.Character.ToString().ToUpper()
+                    if ($charPressed -eq '1') { $selectedActionItemIndex = 0; $actionToExecute = $actionMenuItems[0]; $actionLoopActive = $false }
+                    if ($charPressed -eq '2') { $selectedActionItemIndex = 1; $actionToExecute = $actionMenuItems[1]; $actionLoopActive = $false }
+                    if ($charPressed -eq '3' -or $charPressed -eq 'Q') { $selectedActionItemIndex = 2; $actionToExecute = $actionMenuItems[2]; $actionLoopActive = $false }
+                }
             }
-            40 { # DownArrow
-                $selectedActionItemIndex++
-                if ($selectedActionItemIndex -ge $actionMenuItems.Count) { $selectedActionItemIndex = 0 }
-            }
-            13 { # Enter
-                $actionToExecute = $actionMenuItems[$selectedActionItemIndex]
-                $actionLoopActive = $false # Verlaat de keuzelus
-            }
-            27 { # Escape
-                $actionToExecute = "3. Terug (Esc/Q)"
-                $actionLoopActive = $false
-            }
-            default {
-                $charPressed = $keyInfo.Character.ToString().ToUpper()
-                if ($charPressed -eq '1') { $selectedActionItemIndex = 0; $actionToExecute = $actionMenuItems[0]; $actionLoopActive = $false }
-                if ($charPressed -eq '2') { $selectedActionItemIndex = 1; $actionToExecute = $actionMenuItems[1]; $actionLoopActive = $false }
-                if ($charPressed -eq '3' -or $charPressed -eq 'Q') { $selectedActionItemIndex = 2; $actionToExecute = $actionMenuItems[2]; $actionLoopActive = $false }
-            }
-        }
-    } # Einde while ($actionLoopActive)
+        } # Einde while ($actionLoopActive)
+    }
 
     # Voer de gekozen actie uit
     if ($actionToExecute) {
