@@ -380,20 +380,37 @@ function Search-Mail {
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
             Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
         } else {
-            Write-Host "$($foundMessages.Count) e-mail(s) gevonden:"
+            Write-Host "$($foundMessages.Count) e-mail(s) gevonden. Selecteer een e-mail voor acties:"
             Write-Host "----------------------------------------------------------------------------------------------------"
-            $foundMessages | ForEach-Object {
-                $fromAddress = if ($_.From -and $_.From.EmailAddress) { $_.From.EmailAddress.Address } else { "N/B" }
-                $subject = if ($_.Subject) { $_.Subject } else { "(Geen onderwerp)" }
-                $received = if ($_.ReceivedDateTime) { Get-Date $_.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
-                $attachments = if ($_.HasAttachments) { "Ja" } else { "Nee" }
-
-                Write-Host ("Onderwerp    : {0}" -f $subject)
-                Write-Host ("Van          : {0}" -f $fromAddress)
-                Write-Host ("Ontvangen op : {0}" -f $received)
-                Write-Host ("Bijlagen     : {0}" -f $attachments)
-                Write-Host "ID           : $($_.Id)"
+            
+            $selectableMessages = @{}
+            $i = 1
+            foreach ($message in $foundMessages) {
+                $fromAddress = if ($message.From -and $message.From.EmailAddress) { $message.From.EmailAddress.Address } else { "N/B" }
+                $subject = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
+                $received = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
+                
+                Write-Host ("{0}. Onderwerp    : {1}" -f $i, $subject)
+                Write-Host ("   Van          : {0}" -f $fromAddress)
+                Write-Host ("   Ontvangen op : {0}" -f $received)
+                Write-Host ("   ID           : {0}" -f $message.Id)
                 Write-Host "----------------------------------------------------------------------------------------------------"
+                $selectableMessages[$i] = $message.Id
+                $i++
+            }
+
+            Write-Host "T. Terug naar hoofdmenu"
+            $choice = Read-Host "Kies een e-mailnummer (1-$($i-1)) of T om terug te keren"
+
+            if ($choice -eq 'T' -or $choice -eq 't') {
+                # Doe niets, keer terug naar hoofdmenu via de Read-Host aan het einde van de functie
+            } elseif ($selectableMessages.ContainsKey($choice)) {
+                $selectedMessageId = $selectableMessages[$choice]
+                Show-EmailActionsMenu -UserId $UserId -MessageId $selectedMessageId
+                # Na Show-EmailActionsMenu, keer terug naar hoofdmenu, dus geen extra Read-Host hier nodig.
+                return # Keer direct terug om de Read-Host aan het einde van Search-Mail te vermijden
+            } else {
+                Write-Warning "Ongeldige keuze."
             }
         }
     } catch {
@@ -404,6 +421,25 @@ function Search-Mail {
     }
     
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
+function Show-EmailActionsMenu {
+    param(
+        [string]$UserId,
+        [string]$MessageId
+    )
+    Clear-Host
+    Write-Host "Acties voor e-mail ID: $MessageId (Nog niet geïmplementeerd)"
+    Write-Host "----------------------------------------------------"
+    # TODO: Get message details (Subject, From, To, CC, BCC, ReceivedDateTime, Body Preview)
+    # TODO: Display message details
+    # TODO: Offer sub-menu:
+    # 1. Delete this email
+    # 2. Move this email
+    # 3. View full body
+    # 4. Download attachments (if any)
+    # 5. Back 
+    Read-Host "Druk op Enter om terug te keren" # Tijdelijk
 }
 
 function Empty-DeletedItemsFolder {
