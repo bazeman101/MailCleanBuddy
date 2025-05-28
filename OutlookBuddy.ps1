@@ -429,17 +429,108 @@ function Show-EmailActionsMenu {
         [string]$MessageId
     )
     Clear-Host
-    Write-Host "Acties voor e-mail ID: $MessageId (Nog niet geïmplementeerd)"
-    Write-Host "----------------------------------------------------"
-    # TODO: Get message details (Subject, From, To, CC, BCC, ReceivedDateTime, Body Preview)
-    # TODO: Display message details
-    # TODO: Offer sub-menu:
-    # 1. Delete this email
-    # 2. Move this email
-    # 3. View full body
-    # 4. Download attachments (if any)
-    # 5. Back 
-    Read-Host "Druk op Enter om terug te keren" # Tijdelijk
+    
+    try {
+        # Haal de e-mail op met de benodigde details
+        $properties = "subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,bodyPreview,body,hasAttachments"
+        $message = Get-MgUserMessage -UserId $UserId -MessageId $MessageId -Property $properties -ErrorAction Stop
+
+        if (-not $message) {
+            Write-Warning "Kan e-mail met ID '$MessageId' niet vinden."
+            Read-Host "Druk op Enter om terug te keren"
+            return
+        }
+
+        # Toon e-mail details
+        Write-Host "Details voor e-mail:"
+        Write-Host "----------------------------------------------------"
+        Write-Host ("Onderwerp    : {0}" -f ($message.Subject | Out-String).Trim())
+        Write-Host ("Van          : {0}" -f ($message.From.EmailAddress.Address | Out-String).Trim())
+        Write-Host ("Aan          : {0}" -f (($message.ToRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+        if ($message.CcRecipients) {
+            Write-Host ("CC           : {0}" -f (($message.CcRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+        }
+        if ($message.BccRecipients) { # Meestal niet zichtbaar, maar Graph kan het soms retourneren afhankelijk van context
+            Write-Host ("BCC          : {0}" -f (($message.BccRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+        }
+        Write-Host ("Ontvangen op : {0}" -f (Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss"))
+        Write-Host ("Bijlagen     : {0}" -f ($message.HasAttachments | Out-String).Trim())
+        Write-Host ("Preview      : {0}" -f ($message.BodyPreview | Out-String).Trim())
+        Write-Host "----------------------------------------------------"
+        Write-Host "ID           : $MessageId"
+        Write-Host "----------------------------------------------------"
+        Write-Host ""
+        Write-Host "Kies een actie voor deze e-mail:"
+        Write-Host "1. Verwijder deze e-mail"
+        Write-Host "2. Verplaats deze e-mail"
+        Write-Host "3. Bekijk volledige body"
+        Write-Host "4. Download bijlagen (indien aanwezig)"
+        Write-Host "5. Terug naar zoekresultaten"
+
+        $actionChoice = Read-Host "Kies een optie (1-5)"
+
+        switch ($actionChoice) {
+            "1" {
+                $confirmDelete = Read-Host "Weet u zeker dat u deze e-mail permanent wilt verwijderen? (ja/nee)"
+                if ($confirmDelete -eq 'ja') {
+                    try {
+                        Remove-MgUserMessage -UserId $UserId -MessageId $MessageId -ErrorAction Stop
+                        Write-Host "E-mail succesvol verwijderd."
+                        Write-Warning "De lokale cache (indien van toepassing) is mogelijk niet meer accuraat."
+                    } catch {
+                        Write-Error "Fout bij het verwijderen van de e-mail: $($_.Exception.Message)"
+                    }
+                } else {
+                    Write-Host "Verwijderen geannuleerd."
+                }
+            }
+            "2" {
+                $destinationFolderId = Get-MailFolderSelection -UserId $UserId
+                if ($destinationFolderId) {
+                    $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
+                    $confirmMove = Read-Host "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
+                    if ($confirmMove -eq 'ja') {
+                        try {
+                            Move-MgUserMessage -UserId $UserId -MessageId $MessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                            Write-Host "E-mail succesvol verplaatst naar '$($destinationFolder.DisplayName)'."
+                            Write-Warning "De lokale cache (indien van toepassing) is mogelijk niet meer accuraat."
+                        } catch {
+                            Write-Error "Fout bij het verplaatsen van de e-mail: $($_.Exception.Message)"
+                        }
+                    } else {
+                        Write-Host "Verplaatsen geannuleerd."
+                    }
+                } else {
+                    Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)."
+                }
+            }
+            "3" {
+                Write-Host "Bekijk volledige body (Nog niet geïmplementeerd)" 
+                # TODO: Implement full body view, consider $message.Body.ContentType (HTML/Text)
+            }
+            "4" {
+                if ($message.HasAttachments) {
+                    Write-Host "Download bijlagen (Nog niet geïmplementeerd)"
+                    # TODO: Implement attachment download
+                } else {
+                    Write-Host "Deze e-mail heeft geen bijlagen."
+                }
+            }
+            "5" { 
+                # Terugkeren gebeurt automatisch na de switch als er geen 'return' is in Search-Mail
+                Write-Host "Terug naar zoekresultaten..."
+                return 
+            } 
+            default { Write-Warning "Ongeldige keuze." }
+        }
+
+    } catch {
+        Write-Error "Fout bij het ophalen of verwerken van e-mailacties: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu (of vorige menu indien van toepassing)"
 }
 
 function Empty-DeletedItemsFolder {
