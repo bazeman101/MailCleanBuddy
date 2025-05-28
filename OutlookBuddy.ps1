@@ -1179,7 +1179,8 @@ function Show-MainMenu {
         Write-Host ($leftPadding + $innerFramePadding + $instructionText.PadRight($menuWidth) + $innerFramePadding) -ForegroundColor $cgaInstructionFgColor
 
         # Wacht op toetsaanslag
-        $keyInfo = $Host.UI.RawUI.ReadKey(@{NoEcho=$true;IncludeKeyDown=$true})
+        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
         $choiceToProcess = $null
 
         # Verwerk toetsaanslag
