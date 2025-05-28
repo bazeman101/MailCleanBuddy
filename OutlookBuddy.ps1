@@ -20,7 +20,10 @@
 [CmdletBinding()]
 param (
     [Parameter(Mandatory = $true)]
-    [string]$MailboxEmail
+    [string]$MailboxEmail,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$TestRun
 )
 
 # Script-level cache for sender information
@@ -31,13 +34,23 @@ function Index-Mailbox {
     param($UserId)
     
     Write-Host "Starten met indexeren van mailbox voor $UserId..."
+    if ($TestRun.IsPresent) {
+        Write-Warning "** TESTMODUS ACTIEF: Alleen de laatste 100 e-mails worden geïndexeerd. **"
+    }
     $Script:SenderCache = @{} # Reset of initialiseer de cache
 
     try {
-        Write-Host "Ophalen van berichten (dit kan even duren voor grote mailboxen)..."
-        # Haal alleen de 'sender' eigenschap op voor efficiëntie
-        # De -All parameter zorgt ervoor dat alle berichten worden opgehaald, ongeacht paginering
-        $messages = Get-MgUserMessage -UserId $UserId -All -Property "sender" -ErrorAction Stop
+        Write-Host "Ophalen van berichten..."
+        if ($TestRun.IsPresent) {
+            # Haal de laatste 100 berichten op, gesorteerd op ontvangstdatum (nieuwste eerst)
+            $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property "sender" -OrderBy "receivedDateTime desc" -ErrorAction Stop
+            Write-Host "(Testmodus: max 100 berichten opgehaald)"
+        } else {
+            Write-Host "(Volledige modus: dit kan even duren voor grote mailboxen)..."
+            # Haal alleen de 'sender' eigenschap op voor efficiëntie
+            # De -All parameter zorgt ervoor dat alle berichten worden opgehaald, ongeacht paginering
+            $messages = Get-MgUserMessage -UserId $UserId -All -Property "sender" -ErrorAction Stop
+        }
         
         if ($null -eq $messages -or $messages.Count -eq 0) {
             Write-Warning "Geen berichten gevonden in de mailbox."
