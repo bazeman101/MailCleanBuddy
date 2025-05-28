@@ -174,10 +174,59 @@ function Delete-MailsFromSender {
         [string]$UserId,
         [string]$SenderEmail
     )
-    Write-Host "Functie 'Delete-MailsFromSender' voor $SenderEmail (Nog niet geïmplementeerd)"
-    # TODO: Implement logic to find and delete emails from the specified sender
-    # Vereist Mail.ReadWrite permissie
-    # Voorbeeld: Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" | Remove-MgUserMessage
+    Clear-Host
+    Write-Host "Verwijderen van e-mails van: $SenderEmail"
+    Write-Host "-------------------------------------------"
+
+    $confirmation = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE e-mails van '$SenderEmail' permanent wilt verwijderen? (ja/nee)"
+    if ($confirmation -ne 'ja') {
+        Write-Host "Verwijderen geannuleerd."
+        return
+    }
+
+    try {
+        Write-Host "Zoeken naar e-mails van '$SenderEmail'..."
+        # Filter op het e-mailadres van de afzender in het 'From' veld.
+        # De -All parameter zorgt ervoor dat alle overeenkomende berichten worden opgehaald.
+        $messagesToDelete = Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" -All -ErrorAction Stop
+        
+        if ($null -eq $messagesToDelete -or $messagesToDelete.Count -eq 0) {
+            Write-Host "Geen e-mails gevonden van '$SenderEmail'."
+            return
+        }
+
+        $count = $messagesToDelete.Count
+        Write-Host "$count e-mail(s) gevonden van '$SenderEmail'. Starten met verwijderen..."
+        
+        $deletedCount = 0
+        $errorCount = 0
+
+        foreach ($message in $messagesToDelete) {
+            try {
+                Write-Progress -Activity "E-mails verwijderen" -Status "Verwijderen: $($message.Subject)" -PercentComplete (($deletedCount / $count) * 100)
+                Remove-MgUserMessage -UserId $UserId -MessageId $message.Id -ErrorAction Stop
+                $deletedCount++
+            } catch {
+                Write-Warning "Fout bij het verwijderen van e-mail met ID $($message.Id) (Onderwerp: $($message.Subject)): $($_.Exception.Message)"
+                $errorCount++
+            }
+        }
+        Write-Progress -Activity "E-mails verwijderen" -Completed
+
+        Write-Host "Verwijderen voltooid."
+        Write-Host "$deletedCount e-mail(s) succesvol verwijderd."
+        if ($errorCount -gt 0) {
+            Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd."
+        }
+
+        Write-Warning "De lokale cache is mogelijk niet meer accuraat. Het wordt aanbevolen de mailbox opnieuw te indexeren."
+
+    } catch {
+        Write-Error "Fout tijdens het zoeken of verwijderen van e-mails: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
 }
 
 function Move-MailsFromSender {
