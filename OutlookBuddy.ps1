@@ -187,20 +187,322 @@ function Show-SenderOverview {
     }
 
     # Sorteer op aantal (aflopend) en dan op naam (oplopend)
-    # De eigenschap 'Name' wordt gebruikt als secundaire sorteersleutel voor items met hetzelfde 'Count'.
     $sortedSenders = $senderList | Sort-Object -Property @{Expression="Count"; Descending=$true}, Name
 
     if ($sortedSenders.Count -eq 0) {
         Write-Host "Geen afzenders gevonden in de cache (dit zou niet moeten gebeuren als de indexering succesvol was)."
-    } else {
-        Write-Host "Afzenders gesorteerd op aantal e-mails (meeste eerst):"
-        $sortedSenders | Format-Table -Property @{Name="Aantal"; Expression={$_.Count}; Width=7}, 
-                                         @{Name="Naam"; Expression={$_.Name}; Width=40}, 
-                                         @{Name="E-mailadres"; Expression={$_.Email}; Width=50} -AutoSize
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
     }
     
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+    $selectableSenders = @{}
+    $i = 1
+    Write-Host "Afzenders gesorteerd op aantal e-mails (meeste eerst):"
+    Write-Host "------------------------------------------------------------------------------------------"
+    # Header voor de tabel
+    Write-Host ("{0,-5} {1,-7} {2,-35} {3,-40}" -f "#", "Aantal", "Naam", "E-mailadres")
+    Write-Host "------------------------------------------------------------------------------------------"
+
+    foreach ($sender in $sortedSenders) {
+        Write-Host ("{0,-5} {1,-7} {2,-35} {3,-40}" -f $i, $sender.Count, $sender.Name, $sender.Email)
+        $selectableSenders[$i] = $sender
+        $i++
+    }
+    Write-Host "------------------------------------------------------------------------------------------"
+    Write-Host "T. Terug naar hoofdmenu"
+
+    while ($true) {
+        $choice = Read-Host "Kies een afzendernummer (1-$($i-1)) om e-mails te bekijken/beheren, of T om terug te keren"
+        if ($choice -eq 'T' -or $choice -eq 't') {
+            return
+        }
+        if ($selectableSenders.ContainsKey($choice)) {
+            $selectedSenderInfo = $selectableSenders[$choice]
+            # Roep een nieuwe functie aan om e-mails van deze afzender te tonen en te beheren
+            Show-EmailsFromSelectedSender -UserId $UserId -SenderInfo $selectedSenderInfo
+            # Na terugkeer van Show-EmailsFromSelectedSender, toon het overzicht opnieuw
+            # omdat de cache mogelijk is gewijzigd (bijv. een afzender heeft geen e-mails meer).
+            # Roep Show-SenderOverview opnieuw aan of herlaad de data hier.
+            # Voor nu, keren we terug naar het hoofdmenu, de gebruiker kan dan opnieuw kiezen.
+            # Een betere UX zou zijn om de lijst te verversen.
+            # Echter, de functie Show-SenderOverview opnieuw aanroepen vanuit zichzelf kan leiden tot diepe recursie.
+            # Het is beter om de lus in Show-MainMenu de herhaling te laten afhandelen.
+            # We moeten de $senderList en $sortedSenders opnieuw opbouwen als we hier blijven.
+            # Voor nu, na een actie, keren we terug naar het hoofdmenu. De gebruiker kan dan opnieuw "Overzicht van verzenders" kiezen.
+            # Dit vereist dat Show-EmailsFromSelectedSender terugkeert wanneer het klaar is.
+            return # Keer terug naar hoofdmenu, zodat de gebruiker opnieuw kan navigeren.
+                   # De cache is mogelijk gewijzigd, dus een nieuwe weergave is sowieso nodig.
+        } else {
+            Write-Warning "Ongeldige keuze. Probeer opnieuw."
+        }
+    }
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verplaatst naar de lus of niet meer nodig
 }
+
+
+# Nieuwe helper functie om de cache bij te werken
+function Update-SenderCache {
+    param (
+        [string]$SenderEmail,
+        [string]$MessageIdToRemove, # Optioneel, voor het verwijderen van een specifiek bericht
+        [switch]$RemoveAllMessagesFromSender # Optioneel, voor het verwijderen van de hele sender entry
+    )
+
+    $normalizedSenderEmail = $SenderEmail.ToLowerInvariant()
+
+    if (-not $Script:SenderCache.ContainsKey($normalizedSenderEmail)) {
+        Write-Warning "Kan afzender '$normalizedSenderEmail' niet vinden in de cache voor update."
+        return
+    }
+
+    if ($RemoveAllMessagesFromSender) {
+        Write-Host "Alle berichten van '$normalizedSenderEmail' worden uit de cache verwijderd."
+        $Script:SenderCache.Remove($normalizedSenderEmail)
+    } elseif ($MessageIdToRemove) {
+        $messagesList = $Script:SenderCache[$normalizedSenderEmail].Messages
+        $messageToRemove = $messagesList | Where-Object { $_.MessageId -eq $MessageIdToRemove } | Select-Object -First 1
+        
+        if ($messageToRemove) {
+            $messagesList.Remove($messageToRemove)
+            $Script:SenderCache[$normalizedSenderEmail].Count = $messagesList.Count
+            Write-Host "Bericht met ID '$MessageIdToRemove' verwijderd uit cache voor '$normalizedSenderEmail'. Nieuw aantal: $($messagesList.Count)."
+
+            if ($messagesList.Count -eq 0) {
+                Write-Host "Geen berichten meer voor '$normalizedSenderEmail'. Afzender wordt uit cache verwijderd."
+                $Script:SenderCache.Remove($normalizedSenderEmail)
+            }
+        } else {
+            Write-Warning "Kon bericht met ID '$MessageIdToRemove' niet vinden in de cache voor '$normalizedSenderEmail'."
+        }
+    }
+    # Als er geen specifieke actie is, doet de functie niets, maar dat zou niet moeten voorkomen.
+}
+
+# Nieuwe functie om e-mails van een geselecteerde afzender te tonen en acties te starten
+function Show-EmailsFromSelectedSender {
+    param (
+        [string]$UserId,
+        [PSCustomObject]$SenderInfo # Bevat .Email, .Name, .Count
+    )
+
+    $senderEmail = $SenderInfo.Email 
+    # De messages zijn al in de cache onder $Script:SenderCache[$senderEmailKey].Messages
+    # We moeten de genormaliseerde key gebruiken
+    $normalizedSenderEmail = $senderEmail.ToLowerInvariant()
+
+    # Blijf in een lus zolang er berichten zijn voor deze afzender en de gebruiker niet terug wil
+    while ($Script:SenderCache.ContainsKey($normalizedSenderEmail) -and $Script:SenderCache[$normalizedSenderEmail].Messages.Count -gt 0) {
+        Clear-Host
+        $cachedSenderEntry = $Script:SenderCache[$normalizedSenderEmail]
+        $messagesFromSender = $cachedSenderEntry.Messages | Sort-Object ReceivedDateTime -Descending
+        
+        Write-Host "E-mails van: $($cachedSenderEntry.Name) <$senderEmail>"
+        Write-Host "Aantal in cache: $($cachedSenderEntry.Count)"
+        Write-Host "-------------------------------------------------------------------------------------------------------------------"
+        Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f "#", "Onderwerp", "Ontvangen Op", "Grootte (Bytes)")
+        Write-Host "-------------------------------------------------------------------------------------------------------------------"
+
+        $selectableMessages = @{}
+        $emailIndex = 1
+        foreach ($message in $messagesFromSender) {
+            $subjectDisplay = if ($message.Subject) { ($message.Subject | Select-Object -First 1) } else { "(Geen onderwerp)" }
+            if ($subjectDisplay.Length -gt 57) { $subjectDisplay = $subjectDisplay.Substring(0, 57) + "..." }
+            
+            $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
+            $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
+
+            Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f $emailIndex, $subjectDisplay, $receivedDisplay, $sizeDisplay)
+            $selectableMessages[$emailIndex] = $message # Sla het volledige messageDetail object op
+            $emailIndex++
+        }
+        Write-Host "-------------------------------------------------------------------------------------------------------------------"
+        Write-Host "Kies een e-mailnummer (1-$($emailIndex-1)) voor acties op die e-mail."
+        Write-Host "A. Beheer ALLE e-mails van deze afzender (Verwijder/Verplaats alle)"
+        Write-Host "T. Terug naar overzicht van afzenders"
+
+        $actionChoice = Read-Host "Uw keuze"
+
+        if ($actionChoice -eq 'T' -or $actionChoice -eq 't') {
+            return # Terug naar Show-SenderOverview
+        } elseif ($actionChoice -eq 'A' -or $actionChoice -eq 'a') {
+            # Roep functie aan om ALLE e-mails van deze afzender te beheren
+            $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderEmail $senderEmail -AllMessages $messagesFromSender
+            if ($allMessagesWereModified) {
+                # Als alle berichten zijn aangepast (bijv. verwijderd), is de afzender mogelijk niet meer in de cache.
+                # De lusconditie `while ($Script:SenderCache.ContainsKey($normalizedSenderEmail))` zal dit afhandelen.
+                # Als de entry weg is, zal de lus stoppen en de functie retourneren.
+                # Als de entry er nog is (bijv. verplaatsen mislukt voor sommigen), blijft de lus.
+                # Het is veilig om hier gewoon door te gaan met de volgende iteratie van de while-lus.
+                continue 
+            }
+        } elseif ($selectableMessages.ContainsKey($actionChoice)) {
+            $selectedMessageObject = $selectableMessages[$actionChoice]
+            # Roep functie aan om een ENKELE e-mail te beheren
+            Perform-ActionOnSingleEmail -UserId $UserId -MessageObject $selectedMessageObject -SenderEmailToUpdateCache $senderEmail
+            # Na een actie op een enkele e-mail, wordt de lijst automatisch opnieuw opgebouwd in de volgende lus-iteratie,
+            # en de tellingen/berichten zijn bijgewerkt als de cache correct is aangepast.
+        } else {
+            Write-Warning "Ongeldige keuze."
+            Read-Host "Druk op Enter om door te gaan."
+        }
+    }
+    # Als de lus eindigt omdat de afzender geen berichten meer heeft of niet meer in de cache is:
+    Write-Host "Geen (resterende) e-mails gevonden voor $senderEmail in de cache, of de afzender is verwijderd uit de cache."
+    Read-Host "Druk op Enter om terug te keren naar het overzicht van afzenders."
+    # De functie retourneert nu, en Show-SenderOverview zal opnieuw de lijst van afzenders opbouwen.
+}
+
+# Nieuwe functie voor acties op een enkele geselecteerde e-mail
+function Perform-ActionOnSingleEmail {
+    param (
+        [string]$UserId,
+        [PSCustomObject]$MessageObject, # Het $messageDetail object uit de cache
+        [string]$SenderEmailToUpdateCache
+    )
+    Clear-Host
+    Write-Host "Geselecteerde e-mail:"
+    Write-Host "Onderwerp : $($MessageObject.Subject)"
+    Write-Host "Ontvangen: $($MessageObject.ReceivedDateTime)"
+    Write-Host "ID        : $($MessageObject.MessageId)"
+    Write-Host "-------------------------------------------"
+    Write-Host "Kies een actie:"
+    Write-Host "1. Verwijder deze e-mail"
+    Write-Host "2. Verplaats deze e-mail"
+    Write-Host "3. Terug"
+
+    $choice = Read-Host "Uw keuze (1-3)"
+    switch ($choice) {
+        "1" {
+            $confirm = Read-Host "Weet u zeker dat u deze e-mail permanent wilt verwijderen? (ja/nee)"
+            if ($confirm -eq 'ja') {
+                try {
+                    Write-Host "Verwijderen van e-mail ID $($MessageObject.MessageId)..."
+                    Remove-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -ErrorAction Stop
+                    Write-Host "E-mail succesvol verwijderd van server."
+                    # Update cache
+                    Update-SenderCache -SenderEmail $SenderEmailToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                } catch {
+                    Write-Error "Fout bij het verwijderen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
+                }
+            } else { Write-Host "Verwijderen geannuleerd." }
+        }
+        "2" {
+            $destinationFolderId = Get-MailFolderSelection -UserId $UserId
+            if ($destinationFolderId) {
+                $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
+                $confirm = Read-Host "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
+                if ($confirm -eq 'ja') {
+                    try {
+                        Write-Host "Verplaatsen van e-mail ID $($MessageObject.MessageId) naar '$($destinationFolder.DisplayName)'..."
+                        Move-MgUserMessage -UserId $UserId -MessageId $MessageObject.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                        Write-Host "E-mail succesvol verplaatst."
+                        # Update cache
+                        Update-SenderCache -SenderEmail $SenderEmailToUpdateCache -MessageIdToRemove $MessageObject.MessageId
+                    } catch {
+                        Write-Error "Fout bij het verplaatsen van e-mail ID $($MessageObject.MessageId): $($_.Exception.Message)"
+                    }
+                } else { Write-Host "Verplaatsen geannuleerd." }
+            } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
+        }
+        "3" { return } # Terug naar Show-EmailsFromSelectedSender
+        default { Write-Warning "Ongeldige keuze." }
+    }
+    Read-Host "Druk op Enter om terug te keren."
+}
+
+# Nieuwe functie voor acties op ALLE e-mails van een afzender (vanuit de cache)
+function Perform-ActionOnAllSenderEmails {
+    param (
+        [string]$UserId,
+        [string]$SenderEmail, # E-mailadres van de afzender
+        [System.Collections.Generic.List[PSObject]]$AllMessages # Lijst van $messageDetail objecten
+    )
+    [OutputType([bool])] # Geeft aan of alle berichten zijn verwerkt (en de afzender mogelijk uit cache is)
+
+    Clear-Host
+    Write-Host "Beheer ALLE e-mails van: $SenderEmail"
+    Write-Host "Aantal te verwerken e-mails: $($AllMessages.Count)"
+    Write-Host "-------------------------------------------"
+    Write-Host "Kies een actie:"
+    Write-Host "1. Verwijder ALLE e-mails van deze afzender"
+    Write-Host "2. Verplaats ALLE e-mails van deze afzender"
+    Write-Host "3. Terug"
+
+    $choice = Read-Host "Uw keuze (1-3)"
+    $allProcessedSuccessfully = $true # Standaard aanname
+
+    switch ($choice) {
+        "1" {
+            $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van '$SenderEmail' permanent wilt verwijderen? (ja/nee)"
+            if ($confirm -eq 'ja') {
+                Write-Host "Starten met verwijderen van $($AllMessages.Count) e-mails..."
+                $processedCount = 0
+                $errorCount = 0
+                foreach ($message in $AllMessages) {
+                    $processedCount++
+                    Write-Progress -Activity "Alle e-mails verwijderen" -Status "Verwijderen: $($message.Subject)" -PercentComplete (($processedCount / $AllMessages.Count) * 100)
+                    try {
+                        Remove-MgUserMessage -UserId $UserId -MessageId $message.MessageId -ErrorAction Stop
+                    } catch {
+                        Write-Warning "Fout bij verwijderen e-mail ID $($message.MessageId): $($_.Exception.Message)"
+                        $errorCount++
+                        $allProcessedSuccessfully = $false # Minstens één fout
+                    }
+                }
+                Write-Progress -Activity "Alle e-mails verwijderen" -Completed
+                Write-Host "Verwijderen voltooid. $($AllMessages.Count - $errorCount) e-mail(s) verwijderd."
+                if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd." }
+                
+                if ($allProcessedSuccessfully) { # Alleen als alles goed ging, verwijder de hele sender entry
+                    Update-SenderCache -SenderEmail $SenderEmail -RemoveAllMessagesFromSender
+                    return $true # Signaleer dat de afzender entry mogelijk weg is
+                } elseif (($AllMessages.Count - $errorCount) -gt 0) { # Als sommigen zijn verwijderd, maar niet allen
+                    # De cache moet individueel geüpdatet worden voor de succesvol verwijderde items.
+                    # Dit is complexer; voor nu, informeer de gebruiker om opnieuw te indexeren.
+                    Write-Warning "Niet alle e-mails konden worden verwijderd. De cache voor deze afzender is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
+                }
+            } else { Write-Host "Verwijderen geannuleerd." }
+        }
+        "2" {
+            $destinationFolderId = Get-MailFolderSelection -UserId $UserId
+            if ($destinationFolderId) {
+                $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
+                $confirm = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van '$SenderEmail' wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
+                if ($confirm -eq 'ja') {
+                    Write-Host "Starten met verplaatsen van $($AllMessages.Count) e-mails naar '$($destinationFolder.DisplayName)'..."
+                    $processedCount = 0
+                    $errorCount = 0
+                    foreach ($message in $AllMessages) {
+                        $processedCount++
+                        Write-Progress -Activity "Alle e-mails verplaatsen" -Status "Verplaatsen: $($message.Subject)" -PercentComplete (($processedCount / $AllMessages.Count) * 100)
+                        try {
+                            Move-MgUserMessage -UserId $UserId -MessageId $message.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                        } catch {
+                            Write-Warning "Fout bij verplaatsen e-mail ID $($message.MessageId): $($_.Exception.Message)"
+                            $errorCount++
+                            $allProcessedSuccessfully = $false
+                        }
+                    }
+                    Write-Progress -Activity "Alle e-mails verplaatsen" -Completed
+                    Write-Host "Verplaatsen voltooid. $($AllMessages.Count - $errorCount) e-mail(s) verplaatst."
+                    if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verplaatst." }
+
+                    if ($allProcessedSuccessfully) {
+                        Update-SenderCache -SenderEmail $SenderEmail -RemoveAllMessagesFromSender
+                        return $true # Signaleer dat de afzender entry mogelijk weg is
+                    } elseif (($AllMessages.Count - $errorCount) -gt 0) {
+                         Write-Warning "Niet alle e-mails konden worden verplaatst. De cache voor deze afzender is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
+                    }
+                } else { Write-Host "Verplaatsen geannuleerd." }
+            } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
+        }
+        "3" { return $false } # Terug, geen bulk actie uitgevoerd die de sender entry zou verwijderen
+        default { Write-Warning "Ongeldige keuze." }
+    }
+    Read-Host "Druk op Enter om terug te keren."
+    return (-not $allProcessedSuccessfully) # Als er fouten waren, is de sender entry mogelijk nog (deels) relevant
+}
+
 
 function Manage-EmailsBySender {
     param($UserId)
