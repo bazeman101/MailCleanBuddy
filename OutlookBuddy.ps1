@@ -22,11 +22,69 @@ param (
     [string]$MailboxEmail
 )
 
+# Script-level cache for sender information
+$Script:SenderCache = $null 
+
 # Placeholder functions for menu items
 function Index-Mailbox {
     param($UserId)
-    Write-Host "Menu Item 1: Indexeer mailbox voor $UserId (Nog niet geïmplementeerd)"
-    # TODO: Implement mailbox indexing logic
+    
+    Write-Host "Starten met indexeren van mailbox voor $UserId..."
+    $Script:SenderCache = @{} # Reset of initialiseer de cache
+
+    try {
+        Write-Host "Ophalen van berichten (dit kan even duren voor grote mailboxen)..."
+        # Haal alleen de 'sender' eigenschap op voor efficiëntie
+        # De -All parameter zorgt ervoor dat alle berichten worden opgehaald, ongeacht paginering
+        $messages = Get-MgUserMessage -UserId $UserId -All -Property "sender" -ErrorAction Stop
+        
+        if ($null -eq $messages -or $messages.Count -eq 0) {
+            Write-Warning "Geen berichten gevonden in de mailbox."
+            Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+            return
+        }
+
+        Write-Host "$($messages.Count) berichten gevonden. Verwerken van afzenders..."
+        
+        $processedCount = 0
+        $totalMessages = $messages.Count
+        $updateInterval = [math]::Ceiling($totalMessages / 20) # Update progress approximately 20 times
+        if ($updateInterval -eq 0) {$updateInterval = 1}
+
+
+        foreach ($message in $messages) {
+            $processedCount++
+            if ($processedCount % $updateInterval -eq 0 -or $processedCount -eq $totalMessages) {
+                Write-Progress -Activity "Mailbox Indexeren" -Status "Verwerken van berichten..." -PercentComplete (($processedCount / $totalMessages) * 100) -CurrentOperation "$processedCount van $totalMessages berichten verwerkt."
+            }
+
+            $sender = $message.Sender.EmailAddress
+            if ($sender -and $sender.Address) {
+                $senderAddress = $sender.Address.ToLowerInvariant() # Normaliseer e-mailadres
+                $senderName = $sender.Name
+                
+                if ($Script:SenderCache.ContainsKey($senderAddress)) {
+                    $Script:SenderCache[$senderAddress].Count++
+                } else {
+                    $Script:SenderCache[$senderAddress] = @{
+                        Name  = $senderName
+                        Count = 1
+                    }
+                }
+            }
+        }
+        Write-Progress -Activity "Mailbox Indexeren" -Completed
+
+        $uniqueSenders = $Script:SenderCache.Keys.Count
+        Write-Host "Indexeren voltooid. $uniqueSenders unieke afzender(s) gevonden."
+        
+    } catch {
+        Write-Error "Fout tijdens het indexeren van de mailbox: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
+    
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
