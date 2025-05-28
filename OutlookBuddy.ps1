@@ -41,18 +41,51 @@ function Index-Mailbox {
 
     try {
         Write-Host "Ophalen van berichten..."
-        # Definieer de eigenschappen die we willen ophalen voor elke e-mail
-        $messageProperties = "id", "subject", "sender", "receivedDateTime", "Size", "toRecipients", "categories" # Poging met "Size" (hoofdletter) i.v.m. Microsoft.OutlookServices.Message type
+        $baseMessageProperties = "id", "subject", "sender", "receivedDateTime", "toRecipients", "categories"
+        $sizeProperty = "Size" # De eigenschap die mogelijk problemen veroorzaakt
+        
+        $messages = $null
+        $sizePropertySuccessfullyUsed = $true # Standaard aanname
 
-        if ($TestRun.IsPresent) {
-            # Haal de laatste 100 berichten op, gesorteerd op ontvangstdatum (nieuwste eerst)
-            $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property $messageProperties -OrderBy "receivedDateTime desc" -ErrorAction Stop
-            Write-Host "(Testmodus: max 100 berichten opgehaald)"
-        } else {
-            Write-Host "(Volledige modus: dit kan even duren voor grote mailboxen)..."
-            # Haal de gedefinieerde eigenschappen op voor alle berichten
-            # De -All parameter zorgt ervoor dat alle berichten worden opgehaald, ongeacht paginering
-            $messages = Get-MgUserMessage -UserId $UserId -All -Property $messageProperties -ErrorAction Stop
+        try {
+            # Poging 1: Berichten ophalen inclusief de 'Size' eigenschap
+            $currentMessageProperties = $baseMessageProperties + $sizeProperty
+            Write-Host "Poging 1: Berichten ophalen inclusief '$sizeProperty' eigenschap..."
+            if ($TestRun.IsPresent) {
+                $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property $currentMessageProperties -OrderBy "receivedDateTime desc" -ErrorAction Stop
+                Write-Host "(Testmodus: max 100 berichten opgehaald met '$sizeProperty')"
+            } else {
+                Write-Host "(Volledige modus met '$sizeProperty': dit kan even duren voor grote mailboxen)..."
+                $messages = Get-MgUserMessage -UserId $UserId -All -Property $currentMessageProperties -ErrorAction Stop
+            }
+            Write-Host "Berichten succesvol opgehaald inclusief '$sizeProperty'."
+        }
+        catch {
+            # Controleer of de specifieke fout met betrekking tot 'size' is opgetreden
+            $errorMessage = $_.Exception.Message
+            if ($_.Exception.InnerException) {
+                $errorMessage = $_.Exception.InnerException.Message
+            }
+
+            if ($errorMessage -like "*Could not find a property named 'size' on type 'Microsoft.OutlookServices.Message'*") {
+                Write-Warning "Fout bij ophalen berichten met eigenschap '$sizeProperty': $errorMessage"
+                Write-Host "Poging 2: Berichten ophalen ZONDER '$sizeProperty' eigenschap..."
+                $sizePropertySuccessfullyUsed = $false
+                
+                # Poging 2: Berichten ophalen ZONDER de 'Size' eigenschap
+                if ($TestRun.IsPresent) {
+                    $messages = Get-MgUserMessage -UserId $UserId -Top 100 -Property $baseMessageProperties -OrderBy "receivedDateTime desc" -ErrorAction Stop
+                    Write-Host "(Testmodus: max 100 berichten opgehaald zonder '$sizeProperty')"
+                } else {
+                    Write-Host "(Volledige modus zonder '$sizeProperty': dit kan even duren voor grote mailboxen)..."
+                    $messages = Get-MgUserMessage -UserId $UserId -All -Property $baseMessageProperties -ErrorAction Stop
+                }
+                Write-Host "Berichten succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken of leeg zijn."
+            }
+            else {
+                # Een andere, onverwachte fout is opgetreden, gooi deze opnieuw om door de buitenste catch te worden afgehandeld
+                throw $_ 
+            }
         }
         
         if ($null -eq $messages -or $messages.Count -eq 0) {
@@ -80,12 +113,24 @@ function Index-Mailbox {
                 $senderAddress = $sender.Address.ToLowerInvariant() # Normaliseer e-mailadres
                 $senderName = $sender.Name
 
+                # Bepaal de grootte van het bericht, afhankelijk van of de 'Size' eigenschap succesvol kon worden opgevraagd
+                $currentMessageSize = $null
+                if ($sizePropertySuccessfullyUsed) {
+                    # Als 'Size' werd opgevraagd, probeer de waarde ervan te lezen.
+                    # Controleer of de eigenschap 'Size' bestaat op het $message object om fouten te voorkomen.
+                    if ($message.PSObject.Properties['Size']) {
+                        $currentMessageSize = $message.Size
+                    }
+                    # Als de eigenschap niet bestaat op dit specifieke bericht (ondanks dat het was opgevraagd), blijft $currentMessageSize $null.
+                }
+                # Als $sizePropertySuccessfullyUsed $false is, werd 'Size' niet opgevraagd, dus $currentMessageSize blijft $null.
+
                 # Creëer een object met de details van het huidige bericht
                 $messageDetail = @{
                     MessageId        = $message.Id
                     Subject          = $message.Subject
                     ReceivedDateTime = $message.ReceivedDateTime
-                    Size             = $message.Size # Toegang via .Size, hopend dat dit overeenkomt met de "Size" property uit de selectie
+                    Size             = $currentMessageSize # Gebruik de (mogelijk lege) opgehaalde grootte
                     ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
                     Categories       = $message.Categories
                 }
