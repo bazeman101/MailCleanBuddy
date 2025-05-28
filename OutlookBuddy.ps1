@@ -90,8 +90,39 @@ function Index-Mailbox {
 
 function Show-SenderOverview {
     param($UserId)
-    Write-Host "Menu Item 2: Overzicht van verzenders voor $UserId (Nog niet geïmplementeerd)"
-    # TODO: Implement sender overview logic
+    Clear-Host
+    Write-Host "Overzicht van verzenders voor $UserId"
+    Write-Host "------------------------------------"
+
+    if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
+        Write-Warning "De mailbox is nog niet geïndexeerd of de index is leeg."
+        Write-Warning "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
+
+    # Converteer de hashtable naar een array van custom objecten voor sortering en weergave
+    $senderList = @()
+    foreach ($key in $Script:SenderCache.Keys) {
+        $senderList += [PSCustomObject]@{
+            Email = $key
+            Name  = $Script:SenderCache[$key].Name
+            Count = $Script:SenderCache[$key].Count
+        }
+    }
+
+    # Sorteer op aantal (aflopend) en dan op naam (oplopend)
+    $sortedSenders = $senderList | Sort-Object -Property Count -Descending | Sort-Object -Property Name
+
+    if ($sortedSenders.Count -eq 0) {
+        Write-Host "Geen afzenders gevonden in de cache (dit zou niet moeten gebeuren als de indexering succesvol was)."
+    } else {
+        Write-Host "Afzenders gesorteerd op aantal e-mails (meeste eerst):"
+        $sortedSenders | Format-Table -Property @{Name="Aantal"; Expression={$_.Count}; Width=7}, 
+                                         @{Name="Naam"; Expression={$_.Name}; Width=40}, 
+                                         @{Name="E-mailadres"; Expression={$_.Email}; Width=50} -AutoSize
+    }
+    
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
