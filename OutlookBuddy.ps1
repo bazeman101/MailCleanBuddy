@@ -544,12 +544,12 @@ function Perform-ActionOnSingleEmail {
 # Nieuwe functie voor acties op ALLE e-mails van een afzender (vanuit de cache)
 function Perform-ActionOnAllSenderEmails {
     [CmdletBinding()]
+    [OutputType([bool])] # OutputType was hier al, maar stond verkeerd in eerdere diff. Nu correct geplaatst.
     param (
         [string]$UserId,
         [string]$SenderDomain, # Aangepast van SenderEmail naar SenderDomain
         [System.Collections.Generic.List[PSObject]]$AllMessages # Dit zijn alle berichten van het domein
     )
-    [OutputType([bool])] # OutputType was hier al, maar stond verkeerd in eerdere diff. Nu correct geplaatst.
 
     Clear-Host
     Write-Host "Beheer ALLE e-mails van domein: $SenderDomain" # Tekst aangepast
