@@ -1839,13 +1839,15 @@ function Search-Mail {
         Write-Host "Zoeken naar e-mails met term: '$searchTerm'..."
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
-        # We selecteren specifieke properties voor een snellere en relevantere output.
+        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview"
+        $sizeProperty = "size"
+        $foundMessages = $null
+        $sizePropertySuccessfullyUsed = $true
 
         $getMgUserMessageParams = @{
-            UserId = $UserId
-            Search = $searchTerm
-            Top = 100 # Beperk het aantal resultaten
-            Property = "id,subject,from,receivedDateTime,size,hasAttachments,bodyPreview" # Properties uitgebreid met size en id
+            UserId      = $UserId
+            Search      = $searchTerm
+            Top         = 100 # Beperk het aantal resultaten
             ErrorAction = "Stop"
         }
 
@@ -1854,53 +1856,75 @@ function Search-Mail {
             Write-Host "(Testmodus actief: resultaten gesorteerd op nieuwste eerst)"
         }
 
-        $foundMessages = Get-MgUserMessage @getMgUserMessageParams
+        try {
+            $getMgUserMessageParams.Property = ($baseMessageProperties + "," + $sizeProperty)
+            Write-Host "Poging 1: Zoekresultaten ophalen inclusief '$sizeProperty' eigenschap..."
+            $foundMessages = Get-MgUserMessage @getMgUserMessageParams
+            Write-Host "Zoekresultaten succesvol opgehaald met '$sizeProperty' eigenschap."
+        }
+        catch {
+            $errorMessage = $_.Exception.Message
+            if ($_.Exception.InnerException) { $errorMessage = $_.Exception.InnerException.Message }
+
+            if ($errorMessage -like "*Could not find a property named '$sizeProperty' on type 'Microsoft.OutlookServices.Message'*") {
+                Write-Warning "Fout bij ophalen zoekresultaten met eigenschap '$sizeProperty': $errorMessage"
+                Write-Host "Poging 2: Zoekresultaten ophalen ZONDER '$sizeProperty' eigenschap..."
+                $sizePropertySuccessfullyUsed = $false
+                $getMgUserMessageParams.Property = $baseMessageProperties
+                $foundMessages = Get-MgUserMessage @getMgUserMessageParams
+                Write-Host "Zoekresultaten succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken."
+            }
+            else {
+                throw $_ # Gooi de fout opnieuw als het niet de verwachte 'size' fout is
+            }
+        }
 
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
             Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
-            # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd, wordt aan het einde van de functie afgehandeld
-            # return # Niet meer nodig, de functie loopt door naar de Read-Host aan het einde
         } else {
-            # CGA Kleuren
-            $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
-            $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
-            $cgaInstructionFgColor = [System.ConsoleColor]::White; $cgaWarningFgColor = [System.ConsoleColor]::Red
-            $cgaSpaceSelectedPrefixColor = [System.ConsoleColor]::Yellow
+            # CGA Kleuren (worden ingesteld door Show-StandardizedEmailListView)
+            $cgaInstructionFgColor = [System.ConsoleColor]::White # Voor Write-Host binnen de callback
 
-            $selectedEmailIndex = 0
-            $topDisplayIndex = 0
-            $displayLines = 30 # Maximaal aantal e-mails tegelijk op het scherm
-            $spaceSelectedMessageIds = [System.Collections.Generic.HashSet[string]]::new() # Beheerd door Show-EmailListView
-
-            # Data voorbereiden voor Show-EmailListView
             $messagesForView = @()
             foreach ($msg in $foundMessages) {
+                $currentMessageSize = $null
+                if ($sizePropertySuccessfullyUsed -and $msg.PSObject.Properties[$sizeProperty]) {
+                    $currentMessageSize = $msg.$sizeProperty
+                }
                 $messagesForView += [PSCustomObject]@{
                     Id                 = $msg.Id
                     ReceivedDateTime   = $msg.ReceivedDateTime
                     Subject            = $msg.Subject
                     SenderName         = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Name } else { "N/B" }
                     SenderEmailAddress = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Address } else { "N/B" }
-                    Size               = if ($msg.PSObject.Properties['Size']) { $msg.Size } else { $null }
+                    Size               = $currentMessageSize
                     MessageForActions  = $msg # Het originele Graph object
                 }
             }
 
             # Callback functie om data te herladen
             $refreshCallback = {
-                param($CurrentUserId, $CurrentGetMgUserMessageParams) # $getMgUserMessageParams wordt doorgegeven
+                param($CurrentUserId, $CallbackContext) # $CallbackContext is een hashtable
+                $CurrentGetMgUserMessageParamsForSearch = $CallbackContext.Params
+                $CurrentSizePropertySuccessfullyUsed = $CallbackContext.SizeUsed
+                $sizePropertyForCallback = "size" # Consistent houden
+
                 Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
-                $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParams -ErrorAction SilentlyContinue
+                $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForSearch -ErrorAction SilentlyContinue
                 $reloadedMessagesForView = @()
                 if ($reloadedMessages) {
                     foreach ($rmsg in $reloadedMessages) {
+                        $reloadedMessageSize = $null
+                        if ($CurrentSizePropertySuccessfullyUsed -and $rmsg.PSObject.Properties[$sizePropertyForCallback]) {
+                             $reloadedMessageSize = $rmsg.$sizePropertyForCallback
+                        }
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
                             ReceivedDateTime   = $rmsg.ReceivedDateTime
                             Subject            = $rmsg.Subject
                             SenderName         = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Name } else { "N/B" }
                             SenderEmailAddress = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Address } else { "N/B" }
-                            Size               = if ($rmsg.PSObject.Properties['Size']) { $rmsg.Size } else { $null }
+                            Size               = $reloadedMessageSize
                             MessageForActions  = $rmsg
                         }
                     }
@@ -1908,8 +1932,12 @@ function Search-Mail {
                 return $reloadedMessagesForView
             }
 
-            # De $getMgUserMessageParams moeten meegegeven worden aan de callback
-            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Zoekresultaten voor '$searchTerm'" -AllowActions $true -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $getMgUserMessageParams
+            $callbackContext = @{
+                Params = $getMgUserMessageParams # Dit bevat de correcte 'Property' (met of zonder size)
+                SizeUsed = $sizePropertySuccessfullyUsed
+            }
+
+            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Zoekresultaten voor '$searchTerm'" -AllowActions $true -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
         }
     } catch {
         Write-Error "Fout tijdens het zoeken naar e-mails: $($_.Exception.Message)"
