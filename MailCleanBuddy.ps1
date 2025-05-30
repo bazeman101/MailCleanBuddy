@@ -1475,14 +1475,14 @@ function Perform-ActionOnAllSenderEmails {
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
 
-    Write-Host "Beheer ALLE e-mails van domein: $SenderDomain"
-    Write-Host "Aantal te verwerken e-mails: $($AllMessages.Count)"
-    Write-Host "-------------------------------------------"
+    Write-Host (Get-LocStr "performActionAll_title" -FormatArgs $SenderDomain)
+    Write-Host (Get-LocStr "performActionAll_count" -FormatArgs $AllMessages.Count)
+    Write-Host "-------------------------------------------" # Visuele separator
 
     $actionMenuItems = @(
-        "1. Verwijder ALLE e-mails van dit domein",
-        "2. Verplaats ALLE e-mails van dit domein",
-        "3. Terug (Esc/Q)"
+        (Get-LocStr "performActionAll_menuItemDelete"),
+        (Get-LocStr "performActionAll_menuItemMove"),
+        (Get-LocStr "performActionAll_menuItemBack")
     )
     $selectedActionItemIndex = 0
     $actionLoopActive = $true
@@ -1508,10 +1508,10 @@ function Perform-ActionOnAllSenderEmails {
             # Herteken de statische informatie
             Write-Host $domainHeader
             Write-Host $countHeader
-            Write-Host "-------------------------------------------"
+            Write-Host "-------------------------------------------" # Visuele separator
 
             # Herteken het menu
-            Write-Host "Kies een actie:" -ForegroundColor $cgaInstructionFgColor
+            Write-Host (Get-LocStr "performActionAll_menuTitle") -ForegroundColor $cgaInstructionFgColor
             for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
                 $itemText = $actionMenuItems[$i]
                 if ($i -eq $selectedActionItemIndex) {
@@ -1520,7 +1520,7 @@ function Perform-ActionOnAllSenderEmails {
                     Write-Host "  $($itemText)" -ForegroundColor $cgaFgColor
                 }
             }
-            Write-Host "Gebruik ↑/↓, Enter, Esc/Q" -ForegroundColor $cgaInstructionFgColor
+            Write-Host (Get-LocStr "performActionAll_menuInstruction") -ForegroundColor $cgaInstructionFgColor
 
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
@@ -1558,82 +1558,77 @@ function Perform-ActionOnAllSenderEmails {
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host # Maak scherm schoon voor de actie output
 
-        if ($actionToExecute -like "1. Verwijder*") {
-            if (Get-Confirmation -PromptMessage "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' permanent wilt verwijderen?") {
-                Write-Host "Starten met verwijderen van $($AllMessages.Count) e-mails van domein '$SenderDomain'..."
+        if ($actionToExecute -like ("1.*" -replace "\*", (Get-LocStr "performActionAll_menuItemDelete").Split(" ")[1])) {
+            if (Get-Confirmation -PromptMessage (Get-LocStr "confirmation_promptDeleteAllDomainEmails" -FormatArgs $AllMessages.Count, $SenderDomain)) {
+                Write-Host (Get-LocStr "performActionAll_startingDelete" -FormatArgs $AllMessages.Count, $SenderDomain)
                 $processedCount = 0
                 $errorCount = 0
                 foreach ($message in $AllMessages) {
                     $processedCount++
-                    Write-Progress -Activity "Alle e-mails verwijderen" -Status "Verwijderen: $($message.Subject)" -PercentComplete (($processedCount / $AllMessages.Count) * 100)
+                    Write-Progress -Activity (Get-LocStr "performActionAll_progressActivityDelete") -Status (Get-LocStr "performActionAll_progressStatusDelete" -FormatArgs $message.Subject) -PercentComplete (($processedCount / $AllMessages.Count) * 100)
                     try {
                         Remove-MgUserMessage -UserId $UserId -MessageId $message.MessageId -ErrorAction Stop
                     } catch {
-                        Write-Warning "Fout bij verwijderen e-mail ID $($message.MessageId): $($_.Exception.Message)"
+                        Write-Warning (Get-LocStr "performActionAll_errorDeletingEmailId" -FormatArgs $message.MessageId, $_.Exception.Message)
                         $errorCount++
                         $allProcessedSuccessfully = $false # Minstens één fout
                     }
                 }
-                Write-Progress -Activity "Alle e-mails verwijderen" -Completed
-                Write-Host "Verwijderen voltooid. $($AllMessages.Count - $errorCount) e-mail(s) verwijderd."
-                if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd." }
+                Write-Progress -Activity (Get-LocStr "performActionAll_progressActivityDelete") -Completed
+                Write-Host (Get-LocStr "performActionAll_deleteComplete" -FormatArgs ($AllMessages.Count - $errorCount))
+                if ($errorCount -gt 0) { Write-Warning (Get-LocStr "performActionAll_deleteErrorCount" -FormatArgs $errorCount) }
 
                 if ($allProcessedSuccessfully) { # Alleen als alles goed ging, verwijder de hele domein entry
                     Update-SenderCache -DomainToUpdate $SenderDomain -RemoveAllMessagesFromDomain # Aangepast
                     return $true # Signaleer dat de domein entry mogelijk weg is
                 } elseif (($AllMessages.Count - $errorCount) -gt 0) { # Als sommigen zijn verwijderd, maar niet allen
-                    # De cache moet individueel geüpdatet worden voor de succesvol verwijderde items.
-                    # Dit is complexer; voor nu, informeer de gebruiker om opnieuw te indexeren.
-                    Write-Warning "Niet alle e-mails konden worden verwijderd. De cache voor dit domein is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
+                    Write-Warning (Get-LocStr "performActionAll_deleteNotAllCacheWarning")
                 }
-            } else { Write-Host "Verwijderen geannuleerd." }
-            # Wacht op Escape om terug te keren
-            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            } else { Write-Host (Get-LocStr "performActionAll_deleteCancelled") }
+            Write-Host (Get-LocStr "common_pressEscQToReturn") -ForegroundColor $cgaInstructionFgColor
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
 
-        } elseif ($actionToExecute -like "2. Verplaats*") {
-            $destinationFolderId = Get-MailFolderSelection -UserId $UserId # Deze moet ook interactief worden
+        } elseif ($actionToExecute -like ("2.*" -replace "\*", (Get-LocStr "performActionAll_menuItemMove").Split(" ")[1])) {
+            $destinationFolderId = Get-MailFolderSelection -UserId $UserId
             if ($destinationFolderId) {
                 $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
-                if (Get-Confirmation -PromptMessage "WAARSCHUWING: Weet u zeker dat u ALLE $($AllMessages.Count) e-mails van domein '$SenderDomain' wilt verplaatsen naar '$($destinationFolder.DisplayName)'?") {
-                    Write-Host "Starten met verplaatsen van $($AllMessages.Count) e-mails van domein '$SenderDomain' naar '$($destinationFolder.DisplayName)'..."
+                if (Get-Confirmation -PromptMessage (Get-LocStr "confirmation_promptMoveAllDomainEmails" -FormatArgs $AllMessages.Count, $SenderDomain, $destinationFolder.DisplayName)) {
+                    Write-Host (Get-LocStr "performActionAll_startingMove" -FormatArgs $AllMessages.Count, $SenderDomain, $destinationFolder.DisplayName)
                     $processedCount = 0
                     $errorCount = 0
                     foreach ($message in $AllMessages) {
                         $processedCount++
-                        Write-Progress -Activity "Alle e-mails verplaatsen" -Status "Verplaatsen: $($message.Subject)" -PercentComplete (($processedCount / $AllMessages.Count) * 100)
+                        Write-Progress -Activity (Get-LocStr "performActionAll_progressActivityMove") -Status (Get-LocStr "performActionAll_progressStatusMove" -FormatArgs $message.Subject) -PercentComplete (($processedCount / $AllMessages.Count) * 100)
                         try {
                             Move-MgUserMessage -UserId $UserId -MessageId $message.MessageId -DestinationId $destinationFolderId -ErrorAction Stop
                         } catch {
-                            Write-Warning "Fout bij verplaatsen e-mail ID $($message.MessageId): $($_.Exception.Message)"
+                            Write-Warning (Get-LocStr "performActionAll_errorMovingEmailId" -FormatArgs $message.MessageId, $_.Exception.Message)
                             $errorCount++
                             $allProcessedSuccessfully = $false
                         }
                     }
-                    Write-Progress -Activity "Alle e-mails verplaatsen" -Completed
-                    Write-Host "Verplaatsen voltooid. $($AllMessages.Count - $errorCount) e-mail(s) verplaatst."
-                    if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verplaatst." }
+                    Write-Progress -Activity (Get-LocStr "performActionAll_progressActivityMove") -Completed
+                    Write-Host (Get-LocStr "performActionAll_moveComplete" -FormatArgs ($AllMessages.Count - $errorCount))
+                    if ($errorCount -gt 0) { Write-Warning (Get-LocStr "performActionAll_moveErrorCount" -FormatArgs $errorCount) }
 
                     if ($allProcessedSuccessfully) {
                         Update-SenderCache -DomainToUpdate $SenderDomain -RemoveAllMessagesFromDomain # Aangepast
                         return $true # Signaleer dat de domein entry mogelijk weg is
                     } elseif (($AllMessages.Count - $errorCount) -gt 0) {
-                         Write-Warning "Niet alle e-mails konden worden verplaatst. De cache voor dit domein is mogelijk niet volledig accuraat. Indexeer opnieuw voor een correct overzicht."
+                         Write-Warning (Get-LocStr "performActionAll_moveNotAllCacheWarning")
                     }
-                } else { Write-Host "Verplaatsen geannuleerd." }
-            } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
-            # Wacht op Escape om terug te keren
-            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+                } else { Write-Host (Get-LocStr "performActionAll_moveCancelled") }
+            } else { Write-Host (Get-LocStr "performActionAll_moveNoDestination") }
+            Write-Host (Get-LocStr "common_pressEscQToReturn") -ForegroundColor $cgaInstructionFgColor
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
 
-        } elseif ($actionToExecute -like "3. Terug*") {
+        } elseif ($actionToExecute -like ("3.*" -replace "\*", (Get-LocStr "performActionAll_menuItemBack").Split(" ")[1])) {
             return $false # Terug, geen bulk actie uitgevoerd die de sender entry zou verwijderen
         } else {
-            # Dit zou niet moeten gebeuren als $actionToExecute correct is ingesteld
-            Write-Warning "Ongeldige actie: $actionToExecute"
-            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            Write-Warning (Get-LocStr "performActionAll_invalidAction" -FormatArgs $actionToExecute)
+            Write-Host (Get-LocStr "common_pressEscQToReturn") -ForegroundColor $cgaInstructionFgColor
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
         }
@@ -1657,35 +1652,35 @@ function Manage-EmailsBySender {
     $Host.UI.RawUI.ForegroundColor = $cgaFgColor
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
-    Write-Host "Beheer e-mails van specifiek domein voor $UserId"
-    Write-Host "----------------------------------------------------"
+    Write-Host (Get-LocStr "manageEmails_title" -FormatArgs $UserId)
+    Write-Host "----------------------------------------------------" # Visuele separator
 
     if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
-        Write-Warning "De mailbox is nog niet geïndexeerd of de index is leeg."
-        Write-Warning "Kies optie 'R. Ververs Index' in het hoofdmenu om de index op te bouwen."
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        Write-Warning (Get-LocStr "manageEmails_notIndexedOrEmpty")
+        Write-Warning (Get-LocStr "manageEmails_useMenuRToRefresh")
+        Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue") # Gebruik bestaande key
         return
     }
 
-    $domainNameInput = Read-Host "Voer het domein in van de afzender (bijv. example.com)"
+    $domainNameInput = Read-Host (Get-LocStr "manageEmails_promptDomain")
     if ([string]::IsNullOrWhiteSpace($domainNameInput)) {
-        Write-Warning "Geen domein ingevoerd. Actie geannuleerd."
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        Write-Warning (Get-LocStr "manageEmails_noDomainEntered")
+        Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
         return
     }
 
     $normalizedDomainKey = $domainNameInput.ToLowerInvariant()
 
     if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
-        Write-Warning "Domein '$domainNameInput' niet gevonden in de cache. Controleer het domein of indexeer de mailbox opnieuw."
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        Write-Warning (Get-LocStr "manageEmails_domainNotFoundInCache" -FormatArgs $domainNameInput)
+        Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
         return
     }
 
     $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
     if ($null -eq $cachedDomainEntry -or $cachedDomainEntry.Messages.Count -eq 0) {
-        Write-Warning "Geen e-mails gevonden in de cache voor domein '$domainNameInput'."
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        Write-Warning (Get-LocStr "manageEmails_noEmailsInCacheForDomain" -FormatArgs $domainNameInput)
+        Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
         return
     }
 
@@ -1754,14 +1749,14 @@ function Get-MailFolderSelection {
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
 
-    Write-Host "Selecteer een doelmap:"
-    Write-Host "-----------------------"
+    Write-Host (Get-LocStr "getMailFolder_selectDestinationFolder")
+    Write-Host "-----------------------" # Visuele separator
     try {
         $allMailFolders = Get-MgUserMailFolder -UserId $UserId -All -ErrorAction Stop | Sort-Object DisplayName
 
         if ($null -eq $allMailFolders -or $allMailFolders.Count -eq 0) {
-            Write-Warning "Geen mailmappen gevonden voor gebruiker $UserId."
-            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+            Write-Warning (Get-LocStr "getMailFolder_noFoldersFound" -FormatArgs $UserId)
+            Write-Host (Get-LocStr "common_pressEscQToReturn") -ForegroundColor $cgaInstructionFgColor
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
             return $null
@@ -1797,10 +1792,10 @@ function Get-MailFolderSelection {
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
             Clear-Host # Herteken het hele menu elke keer
 
-            Write-Host "Selecteer een doelmap:" -ForegroundColor $cgaInstructionFgColor
-            Write-Host "----------------------------------------------------------------------"
-            Write-Host ("{0,-5} {1}" -f "#", "Map Pad")
-            Write-Host "----------------------------------------------------------------------"
+            Write-Host (Get-LocStr "getMailFolder_selectDestinationFolder") -ForegroundColor $cgaInstructionFgColor
+            Write-Host "----------------------------------------------------------------------" # Visuele separator
+            Write-Host ("{0,-5} {1}" -f "#", (Get-LocStr "getMailFolder_header"))
+            Write-Host "----------------------------------------------------------------------" # Visuele separator
 
             for ($i = 0; $i -lt $sortedDisplayFolders.Count; $i++) {
                 $folderEntry = $sortedDisplayFolders[$i]
@@ -1813,8 +1808,8 @@ function Get-MailFolderSelection {
                     Write-Host $lineText
                 }
             }
-            Write-Host "----------------------------------------------------------------------"
-            Write-Host "Gebruik ↑/↓, Enter om te selecteren, Esc/Q om te annuleren." -ForegroundColor $cgaInstructionFgColor
+            Write-Host "----------------------------------------------------------------------" # Visuele separator
+            Write-Host (Get-LocStr "getMailFolder_instruction") -ForegroundColor $cgaInstructionFgColor
 
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
@@ -1849,8 +1844,8 @@ function Get-MailFolderSelection {
         } # Einde while ($folderLoopActive)
 
     } catch {
-        Write-Error "Fout bij het ophalen van mailmappen: $($_.Exception.Message)"
-        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        Write-Error (Get-LocStr "getMailFolder_errorFetching" -FormatArgs $_.Exception.Message)
+        Write-Host (Get-LocStr "common_pressEscQToReturn") -ForegroundColor $cgaInstructionFgColor
         $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
         while($Host.UI.RawUI.ReadKey($readKeyOptions).VirtualKeyCode -ne 27) {}
         return $null
@@ -1863,18 +1858,18 @@ function Search-Mail {
         [switch]$IsTestRun # Nieuwe parameter
     )
     Clear-Host
-    Write-Host "Zoek naar e-mails in mailbox: $UserId"
-    Write-Host "---------------------------------------"
+    Write-Host (Get-LocStr "searchMail_title" -FormatArgs $UserId)
+    Write-Host "---------------------------------------" # Visuele separator
 
-    $searchTerm = Read-Host "Voer zoekterm in (hoofdletterongevoelig, gebruik * voor wildcards. Zoekt in onderwerp, body, afzender)"
+    $searchTerm = Read-Host (Get-LocStr "searchMail_promptSearchTerm")
     if ([string]::IsNullOrWhiteSpace($searchTerm)) {
-        Write-Warning "Geen zoekterm ingevoerd. Zoekactie geannuleerd."
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        Write-Warning (Get-LocStr "searchMail_noSearchTerm")
+        Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
         return
     }
 
     try {
-        Write-Host "Zoeken naar e-mails met term: '$searchTerm'..."
+        Write-Host (Get-LocStr "searchMail_searching" -FormatArgs $searchTerm)
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
         $baseMessageProperties = "id,subject,from,receivedDateTime,bodyPreview" # Verwijder 'hasAttachments' en 'size'
@@ -1894,15 +1889,15 @@ function Search-Mail {
 
         if ($IsTestRun.IsPresent) {
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
-            Write-Host "(Testmodus actief: resultaten gesorteerd op nieuwste eerst)"
+            Write-Host (Get-LocStr "searchMail_testModeActive")
         }
 
-        Write-Host "Zoekresultaten ophalen (incl. MAPI size)..."
+        Write-Host (Get-LocStr "searchMail_fetchingResultsMapi")
         $foundMessages = Get-MgUserMessage @getMgUserMessageParams
-        Write-Host "Zoekresultaten succesvol opgehaald."
+        Write-Host (Get-LocStr "searchMail_resultsFetched")
 
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
-            Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
+            Write-Host (Get-LocStr "searchMail_noResults" -FormatArgs $searchTerm)
         } else {
             # CGA Kleuren (worden ingesteld door Show-StandardizedEmailListView)
             $cgaInstructionFgColor = [System.ConsoleColor]::White # Voor Write-Host binnen de callback
@@ -1940,7 +1935,7 @@ function Search-Mail {
                 $localMessageSizeMapiPropertyId = "Integer 0x0E08"
                 $localMessageHasAttachMapiPropertyId = "Boolean 0x0E1B"
 
-                Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                Write-Host (Get-LocStr "searchMail_reloadingResults") -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForSearch -ErrorAction SilentlyContinue
                 $reloadedMessagesForView = @()
                 if ($reloadedMessages) {
@@ -1977,12 +1972,12 @@ function Search-Mail {
                 # SizeUsed is niet meer nodig in de context
             }
 
-            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Zoekresultaten voor '$searchTerm'" -AllowActions $true -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
+            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle (Get-LocStr "searchMail_titleResults" -FormatArgs $searchTerm) -AllowActions $true -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
         }
     } catch {
-        Write-Error "Fout tijdens het zoeken naar e-mails: $($_.Exception.Message)"
+        Write-Error (Get-LocStr "searchMail_error" -FormatArgs $_.Exception.Message)
         if ($_.ScriptStackTrace) {
-            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+            Write-Error (Get-LocStr "msg_indexingStackTrace" -FormatArgs $_.ScriptStackTrace) # Hergebruik key
         }
     }
     # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
@@ -1997,7 +1992,7 @@ function Show-RecentEmails {
     $cgaInstructionFgColor = [System.ConsoleColor]::White
 
     Clear-Host
-    Write-Host "Ophalen van de laatste 100 e-mails voor $UserId..."
+    Write-Host (Get-LocStr "showRecent_title" -FormatArgs $UserId)
 
     try {
         $baseMessageProperties = "id,subject,from,receivedDateTime,bodyPreview" # Verwijder 'hasAttachments' en 'size'
@@ -2015,12 +2010,12 @@ function Show-RecentEmails {
             ErrorAction    = "Stop"
         }
 
-        Write-Host "Recente e-mails ophalen (incl. MAPI size)..."
+        Write-Host (Get-LocStr "showRecent_fetchingMapi")
         $recentMessages = Get-MgUserMessage @getMgUserMessageParams
-        Write-Host "Recente e-mails succesvol opgehaald."
+        Write-Host (Get-LocStr "showRecent_fetched")
 
         if ($null -eq $recentMessages -or $recentMessages.Count -eq 0) {
-            Write-Host "Geen recente e-mails gevonden."
+            Write-Host (Get-LocStr "showRecent_noEmailsFound")
         } else {
             $messagesForView = @()
             foreach ($msg in $recentMessages) {
@@ -2055,7 +2050,7 @@ function Show-RecentEmails {
                 $localMessageSizeMapiPropertyId = "Integer 0x0E08"
                 $localMessageHasAttachMapiPropertyId = "Boolean 0x0E1B"
 
-                Write-Host "Recente e-mails herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                Write-Host (Get-LocStr "showRecent_reloading") -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForRecent -ErrorAction SilentlyContinue
                 $reloadedMessagesForView = @()
                 if ($reloadedMessages) {
@@ -2091,12 +2086,12 @@ function Show-RecentEmails {
                 # SizeUsed is niet meer nodig
             }
 
-            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Laatste 100 e-mails" -AllowActions $true -DomainToUpdateCache "RECENT_EMAILS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
+            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle (Get-LocStr "showRecent_titleResults") -AllowActions $true -DomainToUpdateCache "RECENT_EMAILS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
         }
     } catch {
-        Write-Error "Fout bij het ophalen van recente e-mails: $($_.Exception.Message)"
+        Write-Error (Get-LocStr "showRecent_error" -FormatArgs $_.Exception.Message)
         if ($_.ScriptStackTrace) {
-            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+            Write-Error (Get-LocStr "msg_indexingStackTrace" -FormatArgs $_.ScriptStackTrace) # Hergebruik key
         }
     }
     # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
@@ -2116,29 +2111,29 @@ function Show-EmailActionsMenu {
         $message = Get-MgUserMessage -UserId $UserId -MessageId $MessageId -Property $properties -ErrorAction Stop
 
         if (-not $message) {
-            Write-Warning "Kan e-mail met ID '$MessageId' niet vinden."
-            Read-Host "Druk op Enter om terug te keren"
+            Write-Warning (Get-LocStr "showEmailActions_errorFindingEmail" -FormatArgs $MessageId)
+            Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
             return
         }
 
         # Toon e-mail details
-        Write-Host "Details voor e-mail:"
-        Write-Host "----------------------------------------------------"
-        Write-Host ("Onderwerp    : {0}" -f ($message.Subject | Out-String).Trim())
-        Write-Host ("Van          : {0}" -f ($message.From.EmailAddress.Address | Out-String).Trim())
-        Write-Host ("Aan          : {0}" -f (($message.ToRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+        Write-Host (Get-LocStr "showEmailActions_detailsTitle")
+        Write-Host "----------------------------------------------------" # Visuele separator
+        Write-Host (Get-LocStr "showEmailActions_subject" -FormatArgs ($message.Subject | Out-String).Trim())
+        Write-Host (Get-LocStr "showEmailActions_from" -FormatArgs ($message.From.EmailAddress.Address | Out-String).Trim())
+        Write-Host (Get-LocStr "showEmailActions_to" -FormatArgs (($message.ToRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
         if ($message.CcRecipients) {
-            Write-Host ("CC           : {0}" -f (($message.CcRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+            Write-Host (Get-LocStr "showEmailActions_cc" -FormatArgs (($message.CcRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
         }
         if ($message.BccRecipients) { # Meestal niet zichtbaar, maar Graph kan het soms retourneren afhankelijk van context
-            Write-Host ("BCC          : {0}" -f (($message.BccRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+            Write-Host (Get-LocStr "showEmailActions_bcc" -FormatArgs (($message.BccRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
         }
-        Write-Host ("Ontvangen op : {0}" -f (Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss"))
-        Write-Host ("Bijlagen     : {0}" -f ($message.HasAttachments | Out-String).Trim())
-        Write-Host ("Preview      : {0}" -f ($message.BodyPreview | Out-String).Trim())
-        Write-Host "----------------------------------------------------"
-        Write-Host "ID           : $MessageId"
-        Write-Host "----------------------------------------------------"
+        Write-Host (Get-LocStr "showEmailActions_received" -FormatArgs (Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss"))
+        Write-Host (Get-LocStr "showEmailActions_attachments" -FormatArgs ($message.HasAttachments | Out-String).Trim())
+        Write-Host (Get-LocStr "showEmailActions_preview" -FormatArgs ($message.BodyPreview | Out-String).Trim())
+        Write-Host "----------------------------------------------------" # Visuele separator
+        Write-Host (Get-LocStr "showEmailActions_id" -FormatArgs $MessageId)
+        Write-Host "----------------------------------------------------" # Visuele separator
 
         # CGA Kleuren
         $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
@@ -2166,24 +2161,24 @@ function Show-EmailActionsMenu {
             Write-Host ("Bijlagen     : {0}" -f ($message.HasAttachments | Out-String).Trim())
             Write-Host ("Preview      : {0}" -f ($message.BodyPreview | Out-String).Trim())
             Write-Host "----------------------------------------------------"
-            Write-Host "ID           : $MessageId"
-            Write-Host "----------------------------------------------------"
+            Write-Host (Get-LocStr "showEmailActions_id" -FormatArgs $MessageId)
+            Write-Host "----------------------------------------------------" # Visuele separator
             Write-Host ""
-            Write-Host "Acties: [Del] Verwijder | [V] Verplaats | [B] Bekijk Body | [D] Download Bijlagen | [Esc/Q] Terug" -ForegroundColor $cgaInstructionFgColor
+            Write-Host (Get-LocStr "showEmailActions_menuInstruction") -ForegroundColor $cgaInstructionFgColor
 
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
 
             switch ($keyInfo.VirtualKeyCode) {
                 46 { # Delete
-                    if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail permanent wilt verwijderen?") {
+                    if (Get-Confirmation -PromptMessage (Get-LocStr "confirmation_promptDeleteSingleEmail")) {
                         try {
                             Remove-MgUserMessage -UserId $UserId -MessageId $MessageId -ErrorAction Stop
-                            Write-Host "E-mail succesvol verwijderd."
+                            Write-Host (Get-LocStr "showEmailActions_deleteSuccess")
                             if ($DomainToUpdateCache) { # Controleer of er een cache is om te updaten
                                 Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageId
                             }
-                        } catch { Write-Error "Fout bij het verwijderen van de e-mail: $($_.Exception.Message)" }
+                        } catch { Write-Error (Get-LocStr "showEmailActions_deleteError" -FormatArgs $_.Exception.Message) }
                         $actionLoopActive = $false # Verlaat de lus en functie
                     } # Anders (geen bevestiging), blijft de lus actief en wordt het menu opnieuw getoond
                 }
@@ -2191,17 +2186,17 @@ function Show-EmailActionsMenu {
                     $destinationFolderId = Get-MailFolderSelection -UserId $UserId
                     if ($destinationFolderId) {
                         $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
-                        if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'?") {
+                        if (Get-Confirmation -PromptMessage (Get-LocStr "confirmation_promptMoveSingleEmail" -FormatArgs $destinationFolder.DisplayName)) {
                             try {
                                 Move-MgUserMessage -UserId $UserId -MessageId $MessageId -DestinationId $destinationFolderId -ErrorAction Stop
-                                Write-Host "E-mail succesvol verplaatst naar '$($destinationFolder.DisplayName)'."
+                                Write-Host (Get-LocStr "showEmailActions_moveSuccess" -FormatArgs $destinationFolder.DisplayName)
                                 if ($DomainToUpdateCache) { # Controleer of er een cache is om te updaten
                                     Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageId
                                 }
-                            } catch { Write-Error "Fout bij het verplaatsen van de e-mail: $($_.Exception.Message)" }
+                            } catch { Write-Error (Get-LocStr "showEmailActions_moveError" -FormatArgs $_.Exception.Message) }
                             $actionLoopActive = $false # Verlaat de lus en functie
                         }
-                    } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." ; Start-Sleep -Seconds 1 }
+                    } else { Write-Host (Get-LocStr "showEmailActions_moveCancelledNoDestination") ; Start-Sleep -Seconds 1 }
                 }
                 27 { $actionLoopActive = $false } # Escape
                 default {
@@ -2213,7 +2208,7 @@ function Show-EmailActionsMenu {
                         if ($message.HasAttachments) {
                             Download-MessageAttachments -UserId $UserId -MessageId $MessageId -FullMessageObject $message
                         } else {
-                            Write-Host "Deze e-mail heeft geen bijlagen." ; Start-Sleep -Seconds 1
+                            Write-Host (Get-LocStr "showEmailActions_noAttachments") ; Start-Sleep -Seconds 1
                         }
                         # Na terugkeer uit Download-MessageAttachments, wordt de lus voortgezet.
                     } elseif ($charPressed -eq 'Q') {
@@ -2224,9 +2219,9 @@ function Show-EmailActionsMenu {
         } # Einde while ($actionLoopActive)
 
     } catch {
-        Write-Error "Fout bij het ophalen of verwerken van e-mailacties: $($_.Exception.Message)"
+        Write-Error (Get-LocStr "showEmailActions_error" -FormatArgs $_.Exception.Message)
         if ($_.ScriptStackTrace) {
-            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+            Write-Error (Get-LocStr "msg_indexingStackTrace" -FormatArgs $_.ScriptStackTrace) # Hergebruik key
         }
     }
     # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu (of vorige menu indien van toepassing)" # Verwijderd
@@ -2239,11 +2234,11 @@ function Ensure-DownloadPath {
         [string]$Path
     )
     if (-not (Test-Path -Path $Path)) {
-        Write-Host "Aanmaken downloadmap: $Path"
+        Write-Host (Get-LocStr "ensureDownloadPath_creating" -FormatArgs $Path)
         try {
             New-Item -ItemType Directory -Path $Path -Force -ErrorAction Stop | Out-Null
         } catch {
-            Write-Error "Kon downloadmap '$Path' niet aanmaken: $($_.Exception.Message)"
+            Write-Error (Get-LocStr "ensureDownloadPath_error" -FormatArgs $Path, $_.Exception.Message)
             return $false
         }
     }
@@ -2257,14 +2252,13 @@ function Download-MessageAttachments {
         [PSCustomObject]$FullMessageObject # Nieuwe parameter voor naamgevingsconventie
     )
     Clear-Host
-    Write-Host "Bijlagen voor e-mail ID: $MessageId"
-    Write-Host "-------------------------------------"
+    Write-Host (Get-LocStr "downloadAttachments_title" -FormatArgs $MessageId)
+    Write-Host "-------------------------------------" # Visuele separator
 
     try {
         $attachments = Get-MgUserMessageAttachment -UserId $UserId -MessageId $MessageId -ErrorAction Stop
         if ($null -eq $attachments -or $attachments.Count -eq 0) {
-            Write-Warning "Geen bijlagen gevonden voor deze e-mail (ook al gaf HasAttachments 'true' aan)."
-            # Read-Host "Druk op Enter om terug te keren" # Verwijderd
+            Write-Warning (Get-LocStr "downloadAttachments_noAttachmentsFound")
             Start-Sleep -Seconds 1 # Korte pauze zodat de gebruiker de melding kan lezen
             return
         }
@@ -2283,10 +2277,10 @@ function Download-MessageAttachments {
             $Host.UI.RawUI.ForegroundColor = $cgaFgColor
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
             Clear-Host
-            Write-Host "Bijlagen voor e-mail ID: $MessageId"
-            Write-Host "Onderwerp: $($FullMessageObject.Subject)"
-            Write-Host "-------------------------------------"
-            Write-Host "Beschikbare bijlagen:"
+            Write-Host (Get-LocStr "downloadAttachments_title" -FormatArgs $MessageId)
+            Write-Host ((Get-LocStr "downloadAttachments_subject") -replace ":", (": " + $FullMessageObject.Subject)) # Beetje een hack voor de format
+            Write-Host "-------------------------------------" # Visuele separator
+            Write-Host (Get-LocStr "downloadAttachments_available")
             for ($idx = 0; $idx -lt $attachmentList.Count; $idx++) {
                 $att = $attachmentList[$idx]
                 $line = "{0}. {1} ({2} bytes, Type: {3})" -f ($idx + 1), $att.Name, $att.Size, $att.ContentType
@@ -2296,8 +2290,8 @@ function Download-MessageAttachments {
                     Write-Host ("  " + $line)
                 }
             }
-            Write-Host "-------------------------------------"
-            Write-Host "[Enter] Download Geselecteerde | [A] Download ALLE | [Esc/Q] Annuleren" -ForegroundColor $cgaInstructionFgColor
+            Write-Host "-------------------------------------" # Visuele separator
+            Write-Host (Get-LocStr "downloadAttachments_menuInstruction") -ForegroundColor $cgaInstructionFgColor
 
             $readKeyOptionsAtt = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             $keyInfoAtt = $Host.UI.RawUI.ReadKey($readKeyOptionsAtt)
@@ -2314,7 +2308,7 @@ function Download-MessageAttachments {
                     $downloadChoiceMade = $true
                 }
                 27 { # Escape
-                    Write-Host "Downloaden geannuleerd." ; Start-Sleep -Seconds 1
+                    Write-Host (Get-LocStr "downloadAttachments_cancelled") ; Start-Sleep -Seconds 1
                     return
                 }
                 default {
@@ -2323,7 +2317,7 @@ function Download-MessageAttachments {
                         $attachmentList | ForEach-Object { $attachmentsToDownload.Add($_) }
                         $downloadChoiceMade = $true
                     } elseif ($charAtt -eq 'Q') {
-                        Write-Host "Downloaden geannuleerd." ; Start-Sleep -Seconds 1
+                        Write-Host (Get-LocStr "downloadAttachments_cancelled") ; Start-Sleep -Seconds 1
                         return
                     }
                 }
@@ -2331,12 +2325,12 @@ function Download-MessageAttachments {
         }
 
         if ($attachmentsToDownload.Count -eq 0) { # Zou niet moeten gebeuren als $downloadChoiceMade true is
-            Write-Host "Geen bijlagen geselecteerd voor download." ; Start-Sleep -Seconds 1
+            Write-Host (Get-LocStr "downloadAttachments_noSelection") ; Start-Sleep -Seconds 1
             return
         }
 
         $defaultDownloadPath = Join-Path -Path $PSScriptRoot -ChildPath "_attachments"
-        $downloadPath = Read-Host "Voer het pad in voor de downloads (standaard: $defaultDownloadPath)"
+        $downloadPath = Read-Host (Get-LocStr "downloadAttachments_promptPath" -FormatArgs $defaultDownloadPath)
         if ([string]::IsNullOrWhiteSpace($downloadPath)) {
             $downloadPath = $defaultDownloadPath
         }
@@ -2399,7 +2393,7 @@ function Download-MessageAttachments {
                 $counter++
             }
 
-            Write-Host "Downloaden van '$($attachment.Name)' naar '$filePath'..."
+            Write-Host (Get-LocStr "downloadAttachments_downloadingTo" -FormatArgs $attachment.Name, $filePath)
             try {
                 # Gebruik Invoke-MgGraphRequest om de raw content van de bijlage te krijgen
                 # Zorg ervoor dat $attachment.Id correct is. Soms is het @odata.id of iets dergelijks.
@@ -2409,17 +2403,17 @@ function Download-MessageAttachments {
 
                 if ($attachmentContentBytes -and $attachmentContentBytes.Length -gt 0) {
                     [System.IO.File]::WriteAllBytes($filePath, $attachmentContentBytes)
-                    Write-Host "Bijlage '$($attachment.Name)' succesvol opgeslagen als '$filePath'."
+                    Write-Host (Get-LocStr "downloadAttachments_success" -FormatArgs $attachment.Name, $filePath)
                 } else {
-                    Write-Warning "Invoke-MgGraphRequest gaf geen (of lege) content terug voor bijlage '$($attachment.Name)'. Overslaan."
+                    Write-Warning (Get-LocStr "downloadAttachments_emptyContent" -FormatArgs $attachment.Name)
                 }
             } catch {
-                Write-Warning "Fout bij downloaden of opslaan van bijlage '$($attachment.Name)': $($_.Exception.Message)"
+                Write-Warning (Get-LocStr "downloadAttachments_error" -FormatArgs $attachment.Name, $_.Exception.Message)
             }
         }
 
     } catch {
-        Write-Error "Fout bij het ophalen of downloaden van bijlagen: $($_.Exception.Message)"
+        Write-Error (Get-LocStr "downloadAttachments_errorFetching" -FormatArgs $_.Exception.Message)
     }
     # Read-Host "Druk op Enter om terug te keren" # Verwijderd, de aanroeper (Show-EmailActionsMenu) handelt de UI af.
 }
@@ -2427,13 +2421,13 @@ function Download-MessageAttachments {
 function Empty-DeletedItemsFolder {
     param($UserId)
     Clear-Host
-    Write-Host "Legen van de map 'Verwijderde Items' voor $UserId"
-    Write-Host "----------------------------------------------------"
+    Write-Host (Get-LocStr "emptyDeletedItems_title" -FormatArgs $UserId)
+    Write-Host "----------------------------------------------------" # Visuele separator
 
-    $confirmation = Read-Host "WAARSCHUWING: Weet u zeker dat u ALLE items in de map 'Verwijderde Items' permanent wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt. (ja/nee)"
-    if ($confirmation -ne 'ja') {
-        Write-Host "Legen van 'Verwijderde Items' geannuleerd."
-        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+    $confirmation = Read-Host (Get-LocStr "emptyDeletedItems_confirmPrompt")
+    if ($confirmation -ne (Get-LocStr "confirmation_yes").ToLowerInvariant()) { # Vergelijk met gelokaliseerde "ja"
+        Write-Host (Get-LocStr "emptyDeletedItems_cancelled")
+        Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
         return
     }
 
@@ -2442,23 +2436,23 @@ function Empty-DeletedItemsFolder {
         $deletedItemsFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId "deleteditems" -ErrorAction Stop
 
         if (-not $deletedItemsFolder) {
-            Write-Warning "Kon de map 'Verwijderde Items' niet vinden."
-            Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+            Write-Warning (Get-LocStr "emptyDeletedItems_folderNotFound")
+            Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
             return
         }
 
-        Write-Host "Bezig met het legen van de map '$($deletedItemsFolder.DisplayName)'..."
+        Write-Host (Get-LocStr "emptyDeletedItems_emptyingFolder" -FormatArgs $deletedItemsFolder.DisplayName)
 
         # Gebruik Invoke-MgEmptyUserMailFolder om de map te legen
         Invoke-MgEmptyUserMailFolder -UserId $UserId -MailFolderId $deletedItemsFolder.Id -ErrorAction Stop
 
-        Write-Host "De map '$($deletedItemsFolder.DisplayName)' is succesvol geleegd."
-        Write-Warning "De lokale cache (indien gebruikt voor 'Verwijderde Items', wat momenteel niet het geval is) is mogelijk niet meer accuraat. Overweeg opnieuw te indexeren indien nodig."
+        Write-Host (Get-LocStr "emptyDeletedItems_success" -FormatArgs $deletedItemsFolder.DisplayName)
+        Write-Warning (Get-LocStr "emptyDeletedItems_cacheWarning")
 
     } catch {
-        Write-Error "Fout tijdens het legen van de map 'Verwijderde Items': $($_.Exception.Message)"
+        Write-Error (Get-LocStr "emptyDeletedItems_error" -FormatArgs $_.Exception.Message)
         if ($_.ScriptStackTrace) {
-            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+            Write-Error (Get-LocStr "msg_indexingStackTrace" -FormatArgs $_.ScriptStackTrace) # Hergebruik key
         }
     }
     # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
