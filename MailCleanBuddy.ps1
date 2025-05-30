@@ -28,7 +28,7 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$MaxEmailsToIndex = 0, # Nieuwe parameter om het max aantal te indexeren mails te specificeren
 
-    [Parameter(Mandatory = $false, HelpMessage = "Specifies the UI language (e.g., nl, en, de, fr). Default is 'nl'.")]
+    [Parameter(Mandatory = $false, HelpMessage = "Specifies the UI language (e.g., nl, en, de, fr). Default is 'nl'. Supported: nl, en, de, fr.")]
     [string]$Language = "nl"
 )
 
