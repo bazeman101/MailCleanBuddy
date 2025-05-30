@@ -53,7 +53,7 @@ try {
         if ($Host.UI.RawUI.BufferSize.Width -lt $newWidth -or $Host.UI.RawUI.BufferSize.Height -lt $newBufferHeight) {
              $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size ([Math]::Max($Host.UI.RawUI.BufferSize.Width, $newWidth), $newBufferHeight)
         }
-        
+
         $Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size ($newWidth, $newHeight)
 
         # Zorg ervoor dat de buffer minstens zo groot is als het venster.
@@ -76,7 +76,7 @@ try {
 #>
 
 # Script-level cache for sender information
-$Script:SenderCache = $null 
+$Script:SenderCache = $null
 $Script:CacheFilePath = $null
 
 # Functie om het pad naar het cachebestand te bepalen
@@ -100,11 +100,11 @@ function Load-LocalCache {
         try {
             Write-Host "Lokale cache gevonden. Bezig met laden: $($Script:CacheFilePath)"
             Write-Progress -Activity "Cache Laden" -Status "Bezig met laden van lokale cache..." -PercentComplete 30
-            
+
             $jsonContent = Get-Content -Path $Script:CacheFilePath -Raw -ErrorAction Stop
             Write-Progress -Activity "Cache Laden" -Status "Cachebestand gelezen, converteren..." -PercentComplete 60
             $loadedCache = ConvertFrom-Json -InputObject $jsonContent -ErrorAction Stop
-            
+
             Write-Progress -Activity "Cache Laden" -Status "Cache geconverteerd, berichten verwerken..." -PercentComplete 80
             # Converteer Messages array terug naar List<PSObject> voor elke entry
             $tempCache = @{}
@@ -148,7 +148,7 @@ function Save-LocalCache {
     try {
         Write-Host "Lokale cache opslaan naar: $($Script:CacheFilePath)"
         # Gebruik een voldoende hoge diepte voor ConvertTo-Json
-        $jsonContent = $Script:SenderCache | ConvertTo-Json -Depth 10 -ErrorAction Stop 
+        $jsonContent = $Script:SenderCache | ConvertTo-Json -Depth 10 -ErrorAction Stop
         Set-Content -Path $Script:CacheFilePath -Value $jsonContent -ErrorAction Stop
         Write-Host "Lokale cache succesvol opgeslagen."
     } catch {
@@ -159,7 +159,7 @@ function Save-LocalCache {
 # Placeholder functions for menu items
 function Index-Mailbox {
     param($UserId)
-    
+
     Write-Host "Starten met indexeren van mailbox voor $UserId..."
     if ($MaxEmailsToIndex -gt 0) {
         Write-Warning "** MaxEmailsToIndex ACTIEF: Maximaal de laatste $MaxEmailsToIndex e-mails worden geïndexeerd. **"
@@ -171,7 +171,7 @@ function Index-Mailbox {
 
     try {
         $baseMessageProperties = "id", "subject", "sender", "receivedDateTime", "toRecipients", "categories"
-        $sizeProperty = "Size" 
+        $sizeProperty = "Size"
         $messages = $null
         $sizePropertySuccessfullyUsed = $true
 
@@ -209,16 +209,16 @@ function Index-Mailbox {
                 Write-Warning "Fout bij ophalen berichten met eigenschap '$sizeProperty': $errorMessage"
                 Write-Host "Poging 2: Berichten ophalen ZONDER '$sizeProperty' eigenschap..."
                 $sizePropertySuccessfullyUsed = $false
-                
+
                 $getMgUserMessageParams.Property = $baseMessageProperties # Gebruik nu basis properties
                 $messages = Get-MgUserMessage @getMgUserMessageParams
                 Write-Host "Berichten succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken of leeg zijn."
             }
             else {
-                throw $_ 
+                throw $_
             }
         }
-        
+
         if ($null -eq $messages -or $messages.Count -eq 0) {
             Write-Warning "Geen berichten gevonden in de mailbox tijdens het indexeren."
             # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
@@ -226,7 +226,7 @@ function Index-Mailbox {
         }
 
         Write-Host "$($messages.Count) berichten gevonden. Verwerken van afzenders..."
-        
+
         $processedCount = 0
         $totalMessages = $messages.Count
         $updateInterval = [math]::Ceiling($totalMessages / 20) # Update progress approximately 20 times
@@ -274,7 +274,7 @@ function Index-Mailbox {
                     ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
                     Categories       = $message.Categories
                 }
-                
+
                 if ($Script:SenderCache.ContainsKey($domainKey)) {
                     $Script:SenderCache[$domainKey].Count++
                     $Script:SenderCache[$domainKey].Messages.Add($messageDetail)
@@ -292,7 +292,7 @@ function Index-Mailbox {
 
         $uniqueSenders = $Script:SenderCache.Keys.Count
         Write-Host "Indexeren voltooid. $uniqueSenders unieke afzenderdome(i)n(en) gevonden." # Aangepast voor domeinen
-        
+
         Save-LocalCache # Sla de nieuw geïndexeerde cache op
     } catch {
         Write-Error "Fout tijdens het indexeren van de mailbox: $($_.Exception.Message)"
@@ -360,13 +360,13 @@ function Show-SenderOverview {
             while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
             return # Terug naar hoofdmenu
         }
-        
+
         # Zorg ervoor dat selectie en view binnen grenzen blijven na data herladen
         $selectedItemIndex = [Math]::Max(0, [Math]::Min($selectedItemIndex, $sortedDomains.Count - 1))
         $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $sortedDomains.Count - $displayLines))
-        if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
-        if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex } 
-        if ($selectedItemIndex -ge ($topDisplayIndex + $displayLines)) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 } 
+        if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0}
+        if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex }
+        if ($selectedItemIndex -ge ($topDisplayIndex + $displayLines)) { $topDisplayIndex = $selectedItemIndex - $displayLines + 1 }
 
 
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor
@@ -376,7 +376,7 @@ function Show-SenderOverview {
         $title = "Overzicht van afzenderdomeinen (Scrollen: PgUp/PgDn/↑/↓, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)"
         $headerLine = "{0,-5} {1,-7} {2,-50}" -f " ", "Aantal", "Domein" # Indicator kolom leeg voor nu
         $separator = "-" * ($Host.UI.RawUI.WindowSize.Width -1)
-        
+
         Write-Host $title -ForegroundColor $cgaInstructionFgColor
         Write-Host $headerLine
         Write-Host $separator
@@ -386,7 +386,7 @@ function Show-SenderOverview {
 
         for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
             $domainEntry = $sortedDomains[$i]
-            
+
             $indicator = " " # Ruimte voor de ">" indicator
             $currentLineFgColor = $cgaFgColor
             $currentLineBgColor = $cgaBgColor
@@ -396,11 +396,11 @@ function Show-SenderOverview {
                 $currentLineBgColor = $cgaSelectedBgColor
                 $indicator = ">"
             }
-            
+
             $itemText = "{0,-5} {1,-7} {2,-50}" -f $indicator, $domainEntry.Count, $domainEntry.Domain
             Write-Host $itemText -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
         }
-        
+
         Write-Host $separator
         Write-Host ("Getoond: {0}-{1} van {2}" -f ($topDisplayIndex+1), ($endDisplayIndex+1), $sortedDomains.Count) -ForegroundColor $cgaInstructionFgColor
 
@@ -410,23 +410,23 @@ function Show-SenderOverview {
 
         switch ($keyInfo.VirtualKeyCode) {
             38 { # UpArrow
-                if ($selectedItemIndex -gt 0) { $selectedItemIndex-- } 
-                if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex } 
+                if ($selectedItemIndex -gt 0) { $selectedItemIndex-- }
+                if ($selectedItemIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedItemIndex }
             }
             40 { # DownArrow
-                if ($selectedItemIndex -lt ($sortedDomains.Count - 1)) { $selectedItemIndex++ } 
-                if ($selectedItemIndex -gt $endDisplayIndex) { $topDisplayIndex++ } 
+                if ($selectedItemIndex -lt ($sortedDomains.Count - 1)) { $selectedItemIndex++ }
+                if ($selectedItemIndex -gt $endDisplayIndex) { $topDisplayIndex++ }
             }
             33 { # PageUp
                 $selectedItemIndex = [Math]::Max(0, $selectedItemIndex - $displayLines)
                 $topDisplayIndex = [Math]::Max(0, $topDisplayIndex - $displayLines)
-                if ($selectedItemIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedItemIndex} 
+                if ($selectedItemIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedItemIndex}
             }
             34 { # PageDown
                 $selectedItemIndex = [Math]::Min(($sortedDomains.Count - 1), $selectedItemIndex + $displayLines)
                 $topDisplayIndex = [Math]::Min(($sortedDomains.Count - $displayLines), $topDisplayIndex + $displayLines)
-                if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
-                if ($selectedItemIndex -gt ($topDisplayIndex + $displayLines - 1)) {$topDisplayIndex = $selectedItemIndex - $displayLines + 1} 
+                if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0}
+                if ($selectedItemIndex -gt ($topDisplayIndex + $displayLines - 1)) {$topDisplayIndex = $selectedItemIndex - $displayLines + 1}
             }
             13 { # Enter - Open e-mails van dit domein
                 if ($sortedDomains.Count -gt 0) {
@@ -437,7 +437,7 @@ function Show-SenderOverview {
             86 { # V - Verplaats alle e-mails van dit domein
                 if ($sortedDomains.Count -gt 0) {
                     $selectedDomainObject = $sortedDomains[$selectedItemIndex]
-                    $messagesToActOn = $selectedDomainObject.Messages 
+                    $messagesToActOn = $selectedDomainObject.Messages
                     if ($messagesToActOn -and $messagesToActOn.Count -gt 0) {
                         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                         Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $selectedDomainObject.Domain -AllMessages $messagesToActOn -DirectAction "Move"
@@ -478,7 +478,7 @@ function Convert-HtmlToPlainText {
     }
     # Verwijder script en style blokken eerst
     $plainText = $HtmlContent -replace '(?is)<script.*?</script>', '' -replace '(?is)<style.*?</style>', ''
-    
+
     # Behandel specifieke tags voor newlines en basisopmaak
     # Headings (simulatie met extra newlines en prefix/suffix)
     $plainText = $plainText -replace '(?i)</h[1-6]>', "`r`n" # Newline na heading
@@ -500,7 +500,7 @@ function Convert-HtmlToPlainText {
 
     # Verwijder alle overige HTML tags (na de specifieke behandelingen)
     $plainText = $plainText -replace '<[^>]+>', ''
-    
+
     # Decode HTML entities robuuster
     $plainText = [System.Net.WebUtility]::HtmlDecode($plainText)
 
@@ -511,7 +511,7 @@ function Convert-HtmlToPlainText {
     $plainText = ($plainText.Split([string[]]@("`r`n", "`n"), [System.StringSplitOptions]::None) | ForEach-Object { $_.Trim() }) -join "`r`n"
     # Verwijder meerdere opeenvolgende lege regels, laat maximaal één lege regel toe
     $plainText = $plainText -replace "(\r?\n){3,}", "`r`n`r`n"
-    
+
     return $plainText.Trim()
 }
 
@@ -548,7 +548,7 @@ function Get-Confirmation {
 
         # Toon de prompt (mogelijk met een waarschuwingskleur)
         Write-Host $PromptMessage -ForegroundColor $cgaWarningFgColor
-        
+
         # Toon de opties
         for ($i = 0; $i -lt $options.Count; $i++) {
             $optionText = $options[$i]
@@ -596,7 +596,7 @@ function Get-Confirmation {
 function Update-SenderCache {
     param (
         [string]$DomainToUpdate, # Aangepast van SenderEmail naar DomainToUpdate
-        [string]$MessageIdToRemove, 
+        [string]$MessageIdToRemove,
         [switch]$RemoveAllMessagesFromDomain # Aangepast van Sender naar Domain
     )
 
@@ -620,7 +620,7 @@ function Update-SenderCache {
     } elseif ($MessageIdToRemove) {
         $messagesList = $Script:SenderCache[$normalizedDomainKey].Messages
         $messageToRemove = $messagesList | Where-Object { $_.MessageId -eq $MessageIdToRemove } | Select-Object -First 1
-        
+
         if ($messageToRemove) {
             $messagesList.Remove($messageToRemove)
             $Script:SenderCache[$normalizedDomainKey].Count = $messagesList.Count
@@ -677,11 +677,11 @@ function Show-EmailsFromSelectedSender {
             "Beheer ALLE e-mails van dit domein ($($SenderInfo.Domain))",
             "Terug naar domeinoverzicht (Esc/Q)"
         )
-        
+
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-        Clear-Host 
-        
+        Clear-Host
+
         # Hoofd lus voor dit menu (Show-EmailsFromSelectedSender)
         $senderEmailViewLoopActive = $true
         while ($senderEmailViewLoopActive) {
@@ -692,10 +692,10 @@ function Show-EmailsFromSelectedSender {
                 while($true){ $key = $Host.UI.RawUI.ReadKey($readKeyOptionsEmpty); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
                 return # Verlaat Show-EmailsFromSelectedSender
             }
-            
+
             $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
             $messagesFromCache = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
-            
+
             # Data voorbereiden voor Show-EmailListView
             $messagesForView = @()
             foreach ($msgDetail in $messagesFromCache) {
@@ -736,7 +736,7 @@ function Show-EmailsFromSelectedSender {
             # Toon de e-maillijst met de generieke functie
             # De Show-StandardizedEmailListView handelt Esc/Q af om terug te keren naar deze lus.
             Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "E-mails van domein: $($cachedDomainEntry.Name)" -AllowActions $true -DomainToUpdateCache $domainName -RefreshDataCallback $refreshCallbackForCache -RefreshDataCallbackContext $normalizedDomainKey
-            
+
             # Na terugkeer uit Show-StandardizedEmailListView (via Esc/Q), toon het domein-specifieke menu
             $Host.UI.RawUI.ForegroundColor = $cgaFgColor
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
@@ -772,7 +772,7 @@ function Show-EmailsFromSelectedSender {
                 if ($chosenDomainAction -like "Beheer ALLE e-mails*") {
                     $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                     # Zorg ervoor dat $messagesFromCache (de volledige lijst van messageDetails) wordt meegegeven
-                    $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $domainName -AllMessages $messagesFromCache 
+                    $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $domainName -AllMessages $messagesFromCache
                     if ($allMessagesWereModified -or -not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
                         $senderEmailViewLoopActive = $false # Verlaat dit menu als domein weg is of alles is aangepast
                     }
@@ -782,7 +782,7 @@ function Show-EmailsFromSelectedSender {
                 }
             }
         } # Einde while ($senderEmailViewLoopActive)
-    } # Einde hoofd while ($Script:SenderCache.ContainsKey... 
+    } # Einde hoofd while ($Script:SenderCache.ContainsKey...
     # Na het verlaten van de lussen, keert de functie terug naar Show-SenderOverview, die zijn eigen UI-lus heeft.
 }
 
@@ -835,18 +835,18 @@ function Show-StandardizedEmailListView {
         } else {
             Write-Host "Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
         }
-        
+
         # Kolomvolgorde: Datum, Afzender Naam, Onderwerp, Afzender E-mail, Grootte
         # Pas breedtes aan voor leesbaarheid en om binnen $desiredWidth (150) te blijven
         # Totaal geschat: 5(#) + 20(Datum) + 25(Naam) + 45(Onderwerp) + 35(Email) + 15(Grootte) + (6*2=12 spaties) = 157. Lichte overschrijding, afkorten is belangrijk.
         $headerFormat = "{0,-5} {1,-20} {2,-25} {3,-45} {4,-35} {5,-15}"
         $lineFormat   = "{0} {1,-5} {2,-20} {3,-22} {4,-42} {5,-32} {6,-15}" # Prefix + ItemNr + Kolommen (iets kortere data strings)
-        
+
         $separatorLine = "-" * ([Math]::Min(145, $Host.UI.RawUI.WindowSize.Width - 2)) # Max 145 tekens breed
         Write-Host $separatorLine
         Write-Host ($headerFormat -f "#", "Datum", "Afzender Naam", "Onderwerp", "Afzender E-mail", "Grootte (Bytes)")
         Write-Host $separatorLine
-        
+
         $currentDisplayLines = [Math]::Min($displayLines, $currentMessages.Count)
         if ($currentMessages.Count -eq 0) { $currentDisplayLines = 0 }
 
@@ -859,36 +859,36 @@ function Show-StandardizedEmailListView {
             if ($i -ge $currentMessages.Count) { break }
             $message = $currentMessages[$i]
             $itemNumber = $i + 1
-            
+
             $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
-            
+
             $senderNameDisplay = if ($message.SenderName) { $message.SenderName } else { "N/B" }
             if ($senderNameDisplay.Length -gt 22) { $senderNameDisplay = $senderNameDisplay.Substring(0, 19) + "..." } # Inkorten
 
             $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
             if ($subjectDisplay.Length -gt 42) { $subjectDisplay = $subjectDisplay.Substring(0, 39) + "..." } # Inkorten
-            
+
             $senderEmailDisplay = if ($message.SenderEmailAddress) { $message.SenderEmailAddress } else { "N/B" }
             if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 29) + "..." } # Inkorten
 
             $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
-            
-            $selectionPrefix = "   " 
+
+            $selectionPrefix = "   "
             $currentLineFgColor = $cgaFgColor
             $currentLineBgColor = $cgaBgColor
 
             if ($spaceSelectedMessageIds.Contains($message.Id)) {
-                $selectionPrefix = "[*]" 
+                $selectionPrefix = "[*]"
             }
-            
+
             if ($i -eq $selectedEmailIndex) {
                 $currentLineFgColor = $cgaSelectedFgColor
                 $currentLineBgColor = $cgaSelectedBgColor
                 $selectionPrefix = if ($selectionPrefix -match "\[\*\]") { ">*]" } else { ">  " }
             }
-            
+
             $lineText = $lineFormat -f $selectionPrefix, "$itemNumber.", $receivedDisplay, $senderNameDisplay, $subjectDisplay, $senderEmailDisplay, $sizeDisplay
-            
+
             if (($selectionPrefix -match "\[\*\]" -or $selectionPrefix -match "^\>\*") -and $selectionPrefix.Length -ge 3) {
                 Write-Host ($selectionPrefix.Substring(0,3)) -NoNewline -ForegroundColor $cgaSpaceSelectedPrefixColor -BackgroundColor $currentLineBgColor
                 Write-Host ($lineText.Substring(3)) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
@@ -906,24 +906,24 @@ function Show-StandardizedEmailListView {
 
         switch ($keyInfo.VirtualKeyCode) {
             38 { # UpArrow
-                if ($selectedEmailIndex -gt 0) { $selectedEmailIndex-- } 
-                if ($selectedEmailIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex } 
+                if ($selectedEmailIndex -gt 0) { $selectedEmailIndex-- }
+                if ($selectedEmailIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex }
             }
             40 { # DownArrow
-                if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -lt ($currentMessages.Count - 1)) { $selectedEmailIndex++ } 
-                if ($selectedEmailIndex -gt $endDisplayIndex -and $topDisplayIndex -lt ($currentMessages.Count - $currentDisplayLines)) { $topDisplayIndex++ } 
+                if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -lt ($currentMessages.Count - 1)) { $selectedEmailIndex++ }
+                if ($selectedEmailIndex -gt $endDisplayIndex -and $topDisplayIndex -lt ($currentMessages.Count - $currentDisplayLines)) { $topDisplayIndex++ }
             }
             33 { # PageUp
                 $selectedEmailIndex = [Math]::Max(0, $selectedEmailIndex - $currentDisplayLines)
                 $topDisplayIndex = [Math]::Max(0, $topDisplayIndex - $currentDisplayLines)
-                if ($selectedEmailIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedEmailIndex} 
+                if ($selectedEmailIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedEmailIndex}
             }
             34 { # PageDown
                 if ($currentMessages.Count -gt 0) {
                     $selectedEmailIndex = [Math]::Min(($currentMessages.Count - 1), $selectedEmailIndex + $currentDisplayLines)
                     $topDisplayIndex = [Math]::Min(($currentMessages.Count - $currentDisplayLines), $topDisplayIndex + $currentDisplayLines)
-                    if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
-                    if ($selectedEmailIndex -gt ($topDisplayIndex + $currentDisplayLines - 1)) {$topDisplayIndex = $selectedEmailIndex - $currentDisplayLines + 1} 
+                    if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0}
+                    if ($selectedEmailIndex -gt ($topDisplayIndex + $currentDisplayLines - 1)) {$topDisplayIndex = $selectedEmailIndex - $currentDisplayLines + 1}
                 }
             }
             32 { # Spacebar
@@ -940,14 +940,14 @@ function Show-StandardizedEmailListView {
                 if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
                     $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                     $selectedMessageForAction = $currentMessages[$selectedEmailIndex].MessageForActions
-                    
+
                     if ($selectedMessageForAction.PSObject.Properties['From'] -or $selectedMessageForAction.PSObject.Properties['Sender']) { # Graph Object
                         Show-EmailActionsMenu -UserId $UserId -MessageId $selectedMessageForAction.Id
                     } else { # Cache Object (messageDetail)
                         Show-EmailBody -UserId $UserId -MessageObject $selectedMessageForAction
                     }
-                    
-                    if ($RefreshDataCallback) { 
+
+                    if ($RefreshDataCallback) {
                         $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
                         if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
                     }
@@ -966,7 +966,7 @@ function Show-StandardizedEmailListView {
                             $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                             Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Move"
                             $spaceSelectedMessageIds.Clear()
-                            if ($RefreshDataCallback) { 
+                            if ($RefreshDataCallback) {
                                 $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
                                 if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
                             }
@@ -982,224 +982,29 @@ function Show-StandardizedEmailListView {
                             $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                             Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Delete"
                             $spaceSelectedMessageIds.Clear()
-                            if ($RefreshDataCallback) { 
+                            if ($RefreshDataCallback) {
                                 $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
                                 if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
                             }
                         }
                     }
-                } 
+                }
 
-                if ($keyInfo.VirtualKeyCode -eq 27) { $emailListLoopActive = $false } 
+                if ($keyInfo.VirtualKeyCode -eq 27) { $emailListLoopActive = $false }
                 elseif ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $emailListLoopActive = $false }
             }
         }
-        
+
         if ($currentMessages -and $currentMessages.Count -gt 0) {
             $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $currentMessages.Count - $currentDisplayLines))
-            if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
+            if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0}
             $selectedEmailIndex = [Math]::Max(0, [Math]::Min($selectedEmailIndex, $currentMessages.Count - 1))
             if ($selectedEmailIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex }
             if ($selectedEmailIndex -ge ($topDisplayIndex + $currentDisplayLines) ) { $topDisplayIndex = $selectedEmailIndex - $currentDisplayLines + 1}
         } elseif (-not $currentMessages -or $currentMessages.Count -eq 0) {
-            $emailListLoopActive = $false 
-        }
-    } 
-}
-
-# Generieke functie om een lijst van e-mails weer te geven en interactie mogelijk te maken
-function Show-EmailListView {
-    param (
-        [string]$UserId,
-        [array]$Messages, # Array van PSCustomObjects met Id, ReceivedDateTime, Subject, SenderName, SenderEmailAddress, Size, MessageForActions
-        [string]$ViewTitle,
-        [bool]$AllowActions = $true, # Of acties zoals Verwijderen/Verplaatsen toegestaan zijn
-        [string]$DomainToUpdateCache, # Voor cache updates na acties
-        [scriptblock]$RefreshDataCallback = $null, # Optionele callback om data te herladen
-        $RefreshDataCallbackContext = $null # Optionele context voor de callback
-    )
-
-    # CGA Kleuren
-    $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
-    $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
-    $cgaInstructionFgColor = [System.ConsoleColor]::White; $cgaWarningFgColor = [System.ConsoleColor]::Red
-    $cgaSpaceSelectedPrefixColor = [System.ConsoleColor]::Yellow # Voor [*]
-
-    $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-    $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-    Clear-Host
-    Write-Host "Ophalen van de laatste 100 e-mails..."
-
-    try {
-        # 'size' toegevoegd aan properties. We gaan ervan uit dat de Graph API dit ondersteunt voor recente berichten.
-        # Als dit een fout veroorzaakt, moet er een fallback mechanisme komen zoals in Index-Mailbox.
-        $recentMessages = Get-MgUserMessage -UserId $UserId -Top 100 -OrderBy "receivedDateTime desc" -Property "id,subject,sender,receivedDateTime,bodyPreview,size,hasAttachments" -ErrorAction Stop
-    } catch {
-        Write-Error "Fout bij het ophalen van recente e-mails: $($_.Exception.Message)"
-        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-        $readKeyOptionsCatch = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-        while ($Host.UI.RawUI.ReadKey($readKeyOptionsCatch).VirtualKeyCode -ne 27) {}
-        return
-    }
-
-    if (-not $recentMessages -or $recentMessages.Count -eq 0) {
-        Write-Host "Geen recente e-mails gevonden." -ForegroundColor $cgaInstructionFgColor
-        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-        $readKeyOptionsNoMessages = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-        while ($Host.UI.RawUI.ReadKey($readKeyOptionsNoMessages).VirtualKeyCode -ne 27) {}
-        return
-    }
-
-    $selectedEmailIndex = 0 # Index in de $recentMessages array
-    $topDisplayIndex = 0    # Index van het eerste bericht dat getoond wordt in het venster
-    $displayLines = 30      # Maximaal aantal e-mails tegelijk op het scherm
-    $spaceSelectedMessageIds = [System.Collections.Generic.HashSet[string]]::new()
-
-    $emailListLoopActive = $true
-    while ($emailListLoopActive) {
-        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-        $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-        Clear-Host
-
-        Write-Host "Laatste 100 E-mails (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)" -ForegroundColor $cgaInstructionFgColor
-        Write-Host ("{0} {1,-40} {2,-30} {3,-35} {4,-20}" -f " ", "Onderwerp", "Afzender Naam", "Afzender E-mail", "Ontvangen") # Kolomnamen en breedtes aangepast
-        Write-Host ("-" * ($Host.UI.RawUI.WindowSize.Width -1))
-
-
-        # Bepaal welke berichten te tonen (voor paginering)
-        $endDisplayIndex = [Math]::Min(($topDisplayIndex + $displayLines - 1), ($recentMessages.Count - 1))
-
-        for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
-            $message = $recentMessages[$i]
-            $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
-            if ($subjectDisplay.Length -gt 37) { $subjectDisplay = $subjectDisplay.Substring(0, 37) + "..." } # Aangepaste lengte
-            
-            $senderNameDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Name } else { "N/B" }
-            if ($senderNameDisplay.Length -gt 27) { $senderNameDisplay = $senderNameDisplay.Substring(0, 27) + "..." }
-
-            $senderEmailDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Address } else { "N/B" }
-            if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 32) + "..." }
-
-            $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
-
-            $selectionIndicator = " " # Standaard geen indicator
-            $currentLineFgColor = $cgaFgColor
-            $currentLineBgColor = $cgaBgColor
-
-            if ($spaceSelectedMessageIds.Contains($message.Id)) {
-                $selectionIndicator = "*" # Indicator voor spatie-selectie
-            }
-
-            if ($i -eq $selectedEmailIndex) { # Huidig gehighlighte item
-                $currentLineFgColor = $cgaSelectedFgColor
-                $currentLineBgColor = $cgaSelectedBgColor
-                $selectionIndicator = if ($selectionIndicator -eq "*") {">"} else {">"} # Overschrijf of combineer
-            }
-            
-            # Schrijf de selectie-indicator met een specifieke kleur als het item met spatie is geselecteerd
-            if ($spaceSelectedMessageIds.Contains($message.Id)) {
-                 Write-Host ($selectionIndicator.Substring(0,1)) -NoNewline -ForegroundColor $cgaSpaceSelectedPrefixColor -BackgroundColor $currentLineBgColor
-                 Write-Host ($selectionIndicator.Substring(1)) -NoNewline -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
-            } else {
-                 Write-Host $selectionIndicator -NoNewline -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
-            }
-            # Nieuwe formattering voor de lijn
-            Write-Host (" {0,-40} {1,-30} {2,-35} {3,-20}" -f $subjectDisplay, $senderNameDisplay, $senderEmailDisplay, $receivedDisplay) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
-        }
-        
-        Write-Host ("-" * ($Host.UI.RawUI.WindowSize.Width -1))
-        Write-Host ("Getoond: {0}-{1} van {2} | Geselecteerd (Spatie): {3}" -f ($topDisplayIndex+1), ($endDisplayIndex+1), $recentMessages.Count, $spaceSelectedMessageIds.Count) -ForegroundColor $cgaInstructionFgColor
-
-
-        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
-
-        switch ($keyInfo.VirtualKeyCode) {
-            38 { # UpArrow
-                if ($selectedEmailIndex -gt 0) { $selectedEmailIndex-- }
-                if ($selectedEmailIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex } # Scroll view up
-            }
-            40 { # DownArrow
-                if ($selectedEmailIndex -lt ($recentMessages.Count - 1)) { $selectedEmailIndex++ }
-                if ($selectedEmailIndex -gt $endDisplayIndex) { $topDisplayIndex++ } # Scroll view down
-            }
-            33 { # PageUp
-                $selectedEmailIndex = [Math]::Max(0, $selectedEmailIndex - $displayLines)
-                $topDisplayIndex = [Math]::Max(0, $topDisplayIndex - $displayLines)
-                if ($selectedEmailIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedEmailIndex}
-
-            }
-            34 { # PageDown
-                $selectedEmailIndex = [Math]::Min(($recentMessages.Count - 1), $selectedEmailIndex + $displayLines)
-                $topDisplayIndex = [Math]::Min(($recentMessages.Count - $displayLines), $topDisplayIndex + $displayLines)
-                if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0}
-                if ($selectedEmailIndex -gt ($topDisplayIndex + $displayLines -1)) {$topDisplayIndex = $selectedEmailIndex - $displayLines + 1}
-
-
-            }
-            32 { # Spacebar
-                $currentMessageId = $recentMessages[$selectedEmailIndex].Id
-                if ($spaceSelectedMessageIds.Contains($currentMessageId)) {
-                    $spaceSelectedMessageIds.Remove($currentMessageId) | Out-Null
-                } else {
-                    $spaceSelectedMessageIds.Add($currentMessageId) | Out-Null
-                }
-            }
-            13 { # Enter - Open email
-                $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                Show-EmailBody -UserId $UserId -MessageObject $recentMessages[$selectedEmailIndex]
-            }
-            86 { # V - Verplaatsen
-                $messagesToActOn = New-Object System.Collections.Generic.List[PSObject]
-                if ($spaceSelectedMessageIds.Count -gt 0) {
-                    $recentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOn.Add($_) }
-                } else {
-                    $messagesToActOn.Add($recentMessages[$selectedEmailIndex])
-                }
-                if ($messagesToActOn.Count > 0) {
-                    $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                    Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" -DirectAction "Move"
-                    $spaceSelectedMessageIds.Clear()
-                    # Herlaad de lijst van recente berichten, want items kunnen verplaatst zijn
-                    Write-Host "Herladen van recente e-mails..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
-                    try { $recentMessages = Get-MgUserMessage -UserId $UserId -Top 100 -OrderBy "receivedDateTime desc" -Property "id,subject,sender,receivedDateTime,size,bodyPreview" -ErrorAction Stop } catch { $emailListLoopActive = $false; Write-Warning "Kon e-mails niet herladen."}
-                    if (-not $recentMessages -or $recentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $recentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
-
-                }
-            }
-            46 { # Delete toets
-                $messagesToActOn = New-Object System.Collections.Generic.List[PSObject]
-                if ($spaceSelectedMessageIds.Count -gt 0) {
-                    $recentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOn.Add($_) }
-                } else {
-                    $messagesToActOn.Add($recentMessages[$selectedEmailIndex])
-                }
-                if ($messagesToActOn.Count -gt 0) {
-                    $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                    Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "RECENT_EMAILS_VIEW" -DirectAction "Delete"
-                    $spaceSelectedMessageIds.Clear()
-                    # Herlaad de lijst van recente berichten
-                    Write-Host "Herladen van recente e-mails..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
-                    try { $recentMessages = Get-MgUserMessage -UserId $UserId -Top 100 -OrderBy "receivedDateTime desc" -Property "id,subject,sender,receivedDateTime,size,bodyPreview" -ErrorAction Stop } catch { $emailListLoopActive = $false; Write-Warning "Kon e-mails niet herladen."}
-                    if (-not $recentMessages -or $recentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $recentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
-                }
-            }
-            27 { $emailListLoopActive = $false } # Escape
-            default {
-                if ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $emailListLoopActive = $false }
-            }
-        }
-        # Zorg ervoor dat topDisplayIndex en selectedEmailIndex binnen de grenzen blijven na herladen/verwijderen
-        if ($recentMessages.Count -gt 0) {
-            $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $recentMessages.Count - $displayLines))
-            if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} # Voorkom negatief
-            $selectedEmailIndex = [Math]::Max(0, [Math]::Min($selectedEmailIndex, $recentMessages.Count - 1))
-        } else { # Geen berichten meer
             $emailListLoopActive = $false
         }
-
-
-    } # Einde while ($emailListLoopActive)
+    }
 }
 
 
@@ -1372,7 +1177,7 @@ function Show-EmailBody {
     $cgaBgColor = [System.ConsoleColor]::Black
     $cgaFgColor = [System.ConsoleColor]::Green
     $cgaInstructionFgColor = [System.ConsoleColor]::White
-    
+
     $Host.UI.RawUI.ForegroundColor = $cgaFgColor
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
@@ -1410,7 +1215,7 @@ function Show-EmailBody {
         $bodyContent = $MessageObject.body.content
         $contentType = $MessageObject.body.contentType
     }
-    
+
     if ([string]::IsNullOrWhiteSpace($bodyContent)) {
         # Probeer de volledige body op te halen als deze ontbreekt of als we alleen een preview hadden
         Write-Host "Ophalen van volledige body van server..."
@@ -1439,7 +1244,7 @@ function Show-EmailBody {
     } else {
         $displayText = $bodyContent
     }
-    
+
     Write-Host $displayText
     Write-Host "----------------------------------------------------"
     Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
@@ -1557,7 +1362,7 @@ function Perform-ActionOnSingleEmail {
 
         if ($actionToExecute) {
             $actionLoopActive = $false # Verlaat de lus na een keuze, tenzij het een sub-menu is
-            
+
             # Herstel kleuren voor sub-acties
             $Host.UI.RawUI.ForegroundColor = $cgaFgColor
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
@@ -1607,10 +1412,10 @@ function Perform-ActionOnSingleEmail {
 # Nieuwe functie voor acties op ALLE e-mails van een afzender (vanuit de cache)
 function Perform-ActionOnAllSenderEmails {
     [CmdletBinding()]
-    [OutputType([bool])] 
+    [OutputType([bool])]
     param (
         [string]$UserId,
-        [string]$SenderDomain, 
+        [string]$SenderDomain,
         [System.Collections.Generic.List[PSObject]]$AllMessages,
         [ValidateSet("Delete", "Move")]
         [string]$DirectAction = $null # Nieuwe parameter voor directe actie
@@ -1625,7 +1430,7 @@ function Perform-ActionOnAllSenderEmails {
     $Host.UI.RawUI.ForegroundColor = $cgaFgColor
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
-    
+
     Write-Host "Beheer ALLE e-mails van domein: $SenderDomain"
     Write-Host "Aantal te verwerken e-mails: $($AllMessages.Count)"
     Write-Host "-------------------------------------------"
@@ -1660,7 +1465,7 @@ function Perform-ActionOnAllSenderEmails {
             Write-Host $domainHeader
             Write-Host $countHeader
             Write-Host "-------------------------------------------"
-            
+
             # Herteken het menu
             Write-Host "Kies een actie:" -ForegroundColor $cgaInstructionFgColor
             for ($i = 0; $i -lt $actionMenuItems.Count; $i++) {
@@ -1675,7 +1480,7 @@ function Perform-ActionOnAllSenderEmails {
 
             $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
             $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
-            
+
             switch ($keyInfo.VirtualKeyCode) {
                 38 { # UpArrow
                     $selectedActionItemIndex--
@@ -1728,7 +1533,7 @@ function Perform-ActionOnAllSenderEmails {
                 Write-Progress -Activity "Alle e-mails verwijderen" -Completed
                 Write-Host "Verwijderen voltooid. $($AllMessages.Count - $errorCount) e-mail(s) verwijderd."
                 if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd." }
-                
+
                 if ($allProcessedSuccessfully) { # Alleen als alles goed ging, verwijder de hele domein entry
                     Update-SenderCache -DomainToUpdate $SenderDomain -RemoveAllMessagesFromDomain # Aangepast
                     return $true # Signaleer dat de domein entry mogelijk weg is
@@ -1791,7 +1596,7 @@ function Perform-ActionOnAllSenderEmails {
     } else { # Geen actie gekozen (bijv. Escape in het actiemenu)
         return $false
     }
-    
+
     # Read-Host "Druk op Enter om terug te keren." # Verwijderd
     return (-not $allProcessedSuccessfully) # Als er fouten waren, is de sender entry mogelijk nog (deels) relevant
 }
@@ -1825,7 +1630,7 @@ function Manage-EmailsBySender {
     Write-Host "1. Verwijder alle e-mails van deze afzender"
     Write-Host "2. Verplaats alle e-mails van deze afzender naar een andere map"
     Write-Host "3. Terug naar hoofdmenu"
-    
+
     $actionChoice = Read-Host "Kies een optie (1-3)"
 
     switch ($actionChoice) {
@@ -1859,7 +1664,7 @@ function Delete-MailsFromSender {
         # Filter op het e-mailadres van de afzender in het 'From' veld.
         # De -All parameter zorgt ervoor dat alle overeenkomende berichten worden opgehaald.
         $messagesToDelete = Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" -All -ErrorAction Stop
-        
+
         if ($null -eq $messagesToDelete -or $messagesToDelete.Count -eq 0) {
             Write-Host "Geen e-mails gevonden van '$SenderEmail'."
             return
@@ -1867,7 +1672,7 @@ function Delete-MailsFromSender {
 
         $count = $messagesToDelete.Count
         Write-Host "$count e-mail(s) gevonden van '$SenderEmail'. Starten met verwijderen..."
-        
+
         $deletedCount = 0
         $errorCount = 0
 
@@ -1928,7 +1733,7 @@ function Move-MailsFromSender {
     try {
         Write-Host "Zoeken naar e-mails van '$SenderEmail'..."
         $messagesToMove = Get-MgUserMessage -UserId $UserId -Filter "from/emailAddress/address eq '$SenderEmail'" -All -ErrorAction Stop
-        
+
         if ($null -eq $messagesToMove -or $messagesToMove.Count -eq 0) {
             Write-Host "Geen e-mails gevonden van '$SenderEmail'."
             return
@@ -1936,7 +1741,7 @@ function Move-MailsFromSender {
 
         $count = $messagesToMove.Count
         Write-Host "$count e-mail(s) gevonden van '$SenderEmail'. Starten met verplaatsen naar '$($destinationFolder.DisplayName)'..."
-        
+
         $movedCount = 0
         $errorCount = 0
 
@@ -1977,16 +1782,16 @@ function Get-MailFolderSelection {
     $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
     $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
     $cgaInstructionFgColor = [System.ConsoleColor]::White; $cgaWarningFgColor = [System.ConsoleColor]::Red
-    
+
     $Host.UI.RawUI.ForegroundColor = $cgaFgColor
     $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
-    
+
     Write-Host "Selecteer een doelmap:"
     Write-Host "-----------------------"
     try {
         $allMailFolders = Get-MgUserMailFolder -UserId $UserId -All -ErrorAction Stop | Sort-Object DisplayName
-        
+
         if ($null -eq $allMailFolders -or $allMailFolders.Count -eq 0) {
             Write-Warning "Geen mailmappen gevonden voor gebruiker $UserId."
             Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
@@ -2034,7 +1839,7 @@ function Get-MailFolderSelection {
                 $folderEntry = $sortedDisplayFolders[$i]
                 $itemNumber = $i + 1
                 $lineText = "{0,-5} {1}" -f "$itemNumber.", $folderEntry.DisplayPath
-                
+
                 if ($i -eq $selectedFolderIndex) {
                     Write-Host $lineText -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
                 } else {
@@ -2093,7 +1898,7 @@ function Search-Mail {
     Clear-Host
     Write-Host "Zoek naar e-mails in mailbox: $UserId"
     Write-Host "---------------------------------------"
-    
+
     $searchTerm = Read-Host "Voer zoekterm in (hoofdletterongevoelig, gebruik * voor wildcards. Zoekt in onderwerp, body, afzender)"
     if ([string]::IsNullOrWhiteSpace($searchTerm)) {
         Write-Warning "Geen zoekterm ingevoerd. Zoekactie geannuleerd."
@@ -2106,7 +1911,7 @@ function Search-Mail {
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
         # We selecteren specifieke properties voor een snellere en relevantere output.
-        
+
         $getMgUserMessageParams = @{
             UserId = $UserId
             Search = $searchTerm
@@ -2119,9 +1924,9 @@ function Search-Mail {
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
             Write-Host "(Testmodus actief: resultaten gesorteerd op nieuwste eerst)"
         }
-        
+
         $foundMessages = Get-MgUserMessage @getMgUserMessageParams
-        
+
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
             Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
             # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd, wordt aan het einde van de functie afgehandeld
@@ -2137,7 +1942,7 @@ function Search-Mail {
             $topDisplayIndex = 0
             $displayLines = 30 # Maximaal aantal e-mails tegelijk op het scherm
             $spaceSelectedMessageIds = [System.Collections.Generic.HashSet[string]]::new() # Beheerd door Show-EmailListView
-            
+
             # Data voorbereiden voor Show-EmailListView
             $messagesForView = @()
             foreach ($msg in $foundMessages) {
@@ -2173,7 +1978,7 @@ function Search-Mail {
                 }
                 return $reloadedMessagesForView
             }
-            
+
             # De $getMgUserMessageParams moeten meegegeven worden aan de callback
             Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Zoekresultaten voor '$searchTerm'" -AllowActions $true -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $getMgUserMessageParams
         }
@@ -2183,7 +1988,6 @@ function Search-Mail {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    # Show-EmailListView keert hier terug. De Read-Host hieronder zorgt voor terugkeer naar hoofdmenu.
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
@@ -2193,7 +1997,7 @@ function Show-EmailActionsMenu {
         [string]$MessageId
     )
     Clear-Host
-    
+
     try {
         # Haal de e-mail op met de benodigde details
         $properties = "subject,from,toRecipients,ccRecipients,bccRecipients,receivedDateTime,bodyPreview,body,hasAttachments"
@@ -2298,8 +2102,8 @@ function Show-EmailActionsMenu {
             "5" {
                 # Terugkeren gebeurt automatisch na de switch als er geen 'return' is in Search-Mail
                 Write-Host "Terug naar zoekresultaten..."
-                return 
-            } 
+                return
+            }
             default { Write-Warning "Ongeldige keuze." }
         }
 
@@ -2337,7 +2141,7 @@ function Download-MessageAttachments {
     Clear-Host
     Write-Host "Bijlagen voor e-mail ID: $MessageId"
     Write-Host "-------------------------------------"
-    
+
     try {
         $attachments = Get-MgUserMessageAttachment -UserId $UserId -MessageId $MessageId -ErrorAction Stop
         if ($null -eq $attachments -or $attachments.Count -eq 0) {
@@ -2375,7 +2179,7 @@ function Download-MessageAttachments {
             Read-Host "Druk op Enter om terug te keren"
             return
         }
-        
+
         $attachmentsToDownload = New-Object System.Collections.Generic.List[object]
         if ($choice -eq 'A' -or $choice -eq 'a') {
             $attachments | ForEach-Object { $attachmentsToDownload.Add($_) }
@@ -2390,7 +2194,7 @@ function Download-MessageAttachments {
         foreach ($attachment in $attachmentsToDownload) {
             # Implementeer nieuwe naamgevingsconventie
             $emailReceivedDate = Get-Date $FullMessageObject.ReceivedDateTime -Format "yyyy-MM-dd"
-            
+
             $emailSenderAddress = $FullMessageObject.From.EmailAddress.Address
             $emailSenderDomain = "unknowndomain"
             $emailSenderExtension = "unknownext"
@@ -2401,27 +2205,27 @@ function Download-MessageAttachments {
                     $emailSenderExtension = ($domainPart -split "\.", 2)[1]
                 } else {
                     $emailSenderDomain = $domainPart
-                    $emailSenderExtension = "" 
+                    $emailSenderExtension = ""
                 }
             }
 
             $emailSubject = $FullMessageObject.Subject
-            
+
             # Definieer ongeldige tekens voor bestandsnamen (inclusief pad-specifieke tekens)
-            $invalidPathChars = [System.IO.Path]::GetInvalidFileNameChars() + @(':', '/', '\', '?', '*', '"', '<', '>', '|') 
+            $invalidPathChars = [System.IO.Path]::GetInvalidFileNameChars() + @(':', '/', '\', '?', '*', '"', '<', '>', '|')
             $regexInvalidPathChars = "[{0}]" -f ([regex]::Escape(-join $invalidPathChars))
 
             $safeSubject = "NoSubject"
             if (-not [string]::IsNullOrWhiteSpace($emailSubject)) {
                 $safeSubject = ($emailSubject -replace $regexInvalidPathChars, '_').Substring(0, [Math]::Min($emailSubject.Length, 30))
             }
-            
+
             $attachmentOriginalName = $attachment.Name
             $attachmentBaseNamePart = [System.IO.Path]::GetFileNameWithoutExtension($attachmentOriginalName) -replace $regexInvalidPathChars, '_'
             $attachmentExtensionPart = [System.IO.Path]::GetExtension($attachmentOriginalName) # Inclusief de punt, bijv. ".pdf"
 
             $baseFileNameForSaving = "{0}_{1}_{2}-{3}-{4}" -f $emailReceivedDate, $emailSenderDomain, $emailSenderExtension, $safeSubject, $attachmentBaseNamePart
-            
+
             # Zorg dat de volledige bestandsnaam (basis + extensie) niet te lang wordt
             $maxBaseNameLength = 200 # Arbitraire limiet voor de basisnaam om totale lengte te beheren
             if ($baseFileNameForSaving.Length -gt $maxBaseNameLength) {
@@ -2431,7 +2235,7 @@ function Download-MessageAttachments {
             $currentFileNameAttempt = $baseFileNameForSaving + $attachmentExtensionPart
             $filePath = Join-Path -Path $downloadPath -ChildPath $currentFileNameAttempt
             $counter = 1
-            
+
             # Controleer of bestand al bestaat en voeg teller toe indien nodig
             while (Test-Path $filePath) {
                 $newFileNameWithCounter = "{0}_{1}{2}" -f $baseFileNameForSaving, $counter, $attachmentExtensionPart
@@ -2446,7 +2250,7 @@ function Download-MessageAttachments {
                 # Get-MgUserMessageAttachment retourneert objecten waar .Id de attachment ID is.
                 $attachmentValueUri = "/users/$UserId/messages/$MessageId/attachments/$($attachment.Id)/`$value"
                 $attachmentContentBytes = Invoke-MgGraphRequest -Method GET -Uri $attachmentValueUri -ErrorAction Stop -OutputType Binary # Vraag binaire output
-                
+
                 if ($attachmentContentBytes -and $attachmentContentBytes.Length -gt 0) {
                     [System.IO.File]::WriteAllBytes($filePath, $attachmentContentBytes)
                     Write-Host "Bijlage '$($attachment.Name)' succesvol opgeslagen als '$filePath'."
@@ -2480,7 +2284,7 @@ function Empty-DeletedItemsFolder {
     try {
         # Haal de 'deleteditems' folder op. Dit is een well-known name.
         $deletedItemsFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId "deleteditems" -ErrorAction Stop
-        
+
         if (-not $deletedItemsFolder) {
             Write-Warning "Kon de map 'Verwijderde Items' niet vinden."
             Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
@@ -2488,10 +2292,10 @@ function Empty-DeletedItemsFolder {
         }
 
         Write-Host "Bezig met het legen van de map '$($deletedItemsFolder.DisplayName)'..."
-        
+
         # Gebruik Invoke-MgEmptyUserMailFolder om de map te legen
         Invoke-MgEmptyUserMailFolder -UserId $UserId -MailFolderId $deletedItemsFolder.Id -ErrorAction Stop
-        
+
         Write-Host "De map '$($deletedItemsFolder.DisplayName)' is succesvol geleegd."
         Write-Warning "De lokale cache (indien gebruikt voor 'Verwijderde Items', wat momenteel niet het geval is) is mogelijk niet meer accuraat. Overweeg opnieuw te indexeren indien nodig."
 
@@ -2532,8 +2336,8 @@ function Show-MainMenu {
         "R. Ververs Index vanaf Server (Forceer Refresh)", # Nieuwe/hernoemde optie
         "Q. Afsluiten"
     )
-    $actionCodes = "1", "2", "3", "4", "5", "R", "Q" 
-    
+    $actionCodes = "1", "2", "3", "4", "5", "R", "Q"
+
     $selectedItemIndex = 0
     $menuLoopActive = $true
 
@@ -2550,14 +2354,14 @@ function Show-MainMenu {
 
         # Bouw de volledige menu-inhoud voor breedteberekening
         $tempMenuContentForWidth = @($title) + @($separator) + $menuItems + @($separator) + @($instructionText)
-        
+
         $menuWidth = 0
         foreach ($line in $tempMenuContentForWidth) {
             if ($line.Length -gt $menuWidth) {
                 $menuWidth = $line.Length
             }
         }
-        $frameWidth = $menuWidth + 4 
+        $frameWidth = $menuWidth + 4
         $consoleWidth = $Host.UI.RawUI.WindowSize.Width
         $leftPaddingSpaces = [Math]::Max(0, ($consoleWidth - $frameWidth) / 2)
         $leftPadding = " " * $leftPaddingSpaces
@@ -2575,7 +2379,7 @@ function Show-MainMenu {
         for ($i = 0; $i -lt $menuItems.Count; $i++) {
             $itemText = $menuItems[$i]
             $lineContent = $innerFramePadding + $itemText.PadRight($menuWidth) + $innerFramePadding
-            
+
             if ($i -eq $selectedItemIndex) {
                 Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
             } else {
@@ -2631,7 +2435,7 @@ function Show-MainMenu {
                 "3" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent }
                 "4" { Show-RecentEmails -UserId $UserEmail }
                 "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
-                "R" { 
+                "R" {
                     Write-Host "Volledige indexering vanaf server wordt gestart..."
                     Index-Mailbox -UserId $UserEmail # Deze functie slaat de cache zelf op
                     Write-Host "Indexering voltooid. Druk op een toets om het menu opnieuw te laden."
@@ -2648,7 +2452,7 @@ function Show-MainMenu {
                     Read-Host "Druk op Enter om door te gaan"
                 }
             }
-            
+
             if (-not $menuLoopActive) { # Als 'Q' is gekozen
                  # Herstel kleuren expliciet hier ook voor het geval de finally block niet direct volgt
                 $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
@@ -2658,7 +2462,7 @@ function Show-MainMenu {
             # Na de subactie (als niet Q), worden CGA-kleuren opnieuw ingesteld aan het begin van de volgende while-lus iteratie.
         }
     } # Einde while ($menuLoopActive)
-    
+
     # Mocht de lus op een andere manier eindigen (zou niet moeten), herstel kleuren.
     $Host.UI.RawUI.ForegroundColor = $originalForegroundColor
     $Host.UI.RawUI.BackgroundColor = $originalBackgroundColor
@@ -2696,7 +2500,7 @@ try {
     catch {
         throw "Kritiek: Kon de Microsoft.Graph.Mail module niet installeren of importeren. Installeer deze handmatig met 'Install-Module Microsoft.Graph.Mail -Scope CurrentUser' en probeer het script opnieuw. Foutdetails: $($_.Exception.Message)"
     }
-    
+
     # Connect to Microsoft Graph
     Write-Host "Attempting to connect to Microsoft Graph for mailbox: $MailboxEmail"
     try {
@@ -2750,7 +2554,7 @@ try {
     catch {
         throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph of initialisatie van de cache: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
     }
-    
+
     # Main application loop
     $keepRunning = $true
     while ($keepRunning) {
