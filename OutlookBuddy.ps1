@@ -599,6 +599,13 @@ function Update-SenderCache {
         [switch]$RemoveAllMessagesFromDomain # Aangepast van Sender naar Domain
     )
 
+    # Als de update voor een speciale view is (zoals zoekresultaten), sla de cache update over.
+    # Deze views beheren hun eigen lijsten of herladen data.
+    if ($DomainToUpdate -eq "RECENT_EMAILS_VIEW" -or $DomainToUpdate -eq "SEARCH_RESULTS_VIEW") {
+        Write-Verbose "Cache update overgeslagen voor speciale view: $DomainToUpdate"
+        return
+    }
+
     $normalizedDomainKey = $DomainToUpdate.ToLowerInvariant()
 
     if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
@@ -930,7 +937,8 @@ function Show-RecentEmails {
             
             # Schrijf de selectie-indicator met een specifieke kleur als het item met spatie is geselecteerd
             if ($spaceSelectedMessageIds.Contains($message.Id)) {
-                 Write-Host $selectionIndicator -NoNewline -ForegroundColor $cgaSpaceSelectedPrefixColor -BackgroundColor $currentLineBgColor
+                 Write-Host ($selectionIndicator.Substring(0,1)) -NoNewline -ForegroundColor $cgaSpaceSelectedPrefixColor -BackgroundColor $currentLineBgColor
+                 Write-Host ($selectionIndicator.Substring(1)) -NoNewline -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
             } else {
                  Write-Host $selectionIndicator -NoNewline -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
             }
@@ -1941,7 +1949,7 @@ function Search-Mail {
             UserId = $UserId
             Search = $searchTerm
             Top = 100 # Beperk het aantal resultaten
-            Property = "subject,from,receivedDateTime,hasAttachments"
+            Property = "id,subject,from,receivedDateTime,size,hasAttachments,bodyPreview" # Properties uitgebreid met size en id
             ErrorAction = "Stop"
         }
 
@@ -1949,44 +1957,165 @@ function Search-Mail {
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
             Write-Host "(Testmodus actief: resultaten gesorteerd op nieuwste eerst)"
         }
-
+        
         $foundMessages = Get-MgUserMessage @getMgUserMessageParams
         
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
             Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
+            # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd, wordt aan het einde van de functie afgehandeld
+            # return # Niet meer nodig, de functie loopt door naar de Read-Host aan het einde
         } else {
-            Write-Host "$($foundMessages.Count) e-mail(s) gevonden. Selecteer een e-mail voor acties:"
-            Write-Host "----------------------------------------------------------------------------------------------------"
+            # CGA Kleuren
+            $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+            $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+            $cgaInstructionFgColor = [System.ConsoleColor]::White; $cgaWarningFgColor = [System.ConsoleColor]::Red
+            $cgaSpaceSelectedPrefixColor = [System.ConsoleColor]::Yellow
+
+            $selectedEmailIndex = 0
+            $topDisplayIndex = 0
+            $displayLines = 30 # Maximaal aantal e-mails tegelijk op het scherm
+            $spaceSelectedMessageIds = [System.Collections.Generic.HashSet[string]]::new()
             
-            $selectableMessages = @{}
-            $i = 1
-            foreach ($message in $foundMessages) {
-                $fromAddress = if ($message.From -and $message.From.EmailAddress) { $message.From.EmailAddress.Address } else { "N/B" }
-                $subject = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
-                $received = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
-                
-                Write-Host ("{0}. Onderwerp    : {1}" -f $i, $subject)
-                Write-Host ("   Van          : {0}" -f $fromAddress)
-                Write-Host ("   Ontvangen op : {0}" -f $received)
-                Write-Host ("   ID           : {0}" -f $message.Id)
-                Write-Host "----------------------------------------------------------------------------------------------------"
-                $selectableMessages[$i] = $message.Id
-                $i++
-            }
+            $searchResultLoopActive = $true
+            while ($searchResultLoopActive) {
+                $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+                $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                Clear-Host
 
-            Write-Host "T. Terug naar hoofdmenu"
-            $choice = Read-Host "Kies een e-mailnummer (1-$($i-1)) of T om terug te keren"
+                Write-Host "Zoekresultaten voor '$searchTerm' (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)" -ForegroundColor $cgaInstructionFgColor
+                Write-Host "------------------------------------------------------------------------------------------------------------------------"
+                Write-Host ("{0,-5} {1,-40} {2,-35} {3,-20} {4,-15}" -f "#", "Onderwerp", "Afzender E-mail", "Ontvangen Op", "Grootte (Bytes)")
+                Write-Host "------------------------------------------------------------------------------------------------------------------------"
 
-            if ($choice -eq 'T' -or $choice -eq 't') {
-                # Doe niets, keer terug naar hoofdmenu via de Read-Host aan het einde van de functie
-            } elseif ($selectableMessages.ContainsKey($choice)) {
-                $selectedMessageId = $selectableMessages[$choice]
-                Show-EmailActionsMenu -UserId $UserId -MessageId $selectedMessageId
-                # Na Show-EmailActionsMenu, keer terug naar hoofdmenu, dus geen extra Read-Host hier nodig.
-                return # Keer direct terug om de Read-Host aan het einde van Search-Mail te vermijden
-            } else {
-                Write-Warning "Ongeldige keuze."
-            }
+                $endDisplayIndex = [Math]::Min(($topDisplayIndex + $displayLines - 1), ($foundMessages.Count - 1))
+
+                for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
+                    $message = $foundMessages[$i]
+                    $itemNumber = $i + 1
+                    $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
+                    if ($subjectDisplay.Length -gt 37) { $subjectDisplay = $subjectDisplay.Substring(0, 37) + "..." }
+                    
+                    $senderEmailDisplay = if ($message.From -and $message.From.EmailAddress) { $message.From.EmailAddress.Address } else { "N/B" }
+                    if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 32) + "..." }
+
+                    $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
+                    $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
+                    
+                    $selectionPrefix = "   " 
+                    $currentLineFgColor = $cgaFgColor
+                    $currentLineBgColor = $cgaBgColor
+
+                    if ($spaceSelectedMessageIds.Contains($message.Id)) {
+                        $selectionPrefix = "[*]" 
+                    }
+                    
+                    if ($i -eq $selectedEmailIndex) {
+                        $currentLineFgColor = $cgaSelectedFgColor
+                        $currentLineBgColor = $cgaSelectedBgColor
+                        $selectionPrefix = if ($selectionPrefix -match "\[\*\]") { ">*]" } else { ">  " } # Combineer cursor met spatie-selectie
+                    }
+                    
+                    $lineText = "{0} {1,-5} {2,-37} {3,-35} {4,-20} {5,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $senderEmailDisplay, $receivedDisplay, $sizeDisplay
+                    
+                    if ($selectionPrefix -match "\[\*\]" -or $selectionPrefix -match "^\>\*") { # Als het item met spatie is geselecteerd
+                        Write-Host ($selectionPrefix.Substring(0,3)) -NoNewline -ForegroundColor $cgaSpaceSelectedPrefixColor -BackgroundColor $currentLineBgColor
+                        Write-Host ($lineText.Substring(3)) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
+                    } else {
+                        Write-Host $lineText -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
+                    }
+                }
+                Write-Host "------------------------------------------------------------------------------------------------------------------------"
+                Write-Host ("Getoond: {0}-{1} van {2} | Geselecteerd (Spatie): {3}" -f ($topDisplayIndex+1), ($endDisplayIndex+1), $foundMessages.Count, $spaceSelectedMessageIds.Count) -ForegroundColor $cgaInstructionFgColor
+
+                $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+                $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
+
+                switch ($keyInfo.VirtualKeyCode) {
+                    38 { # UpArrow
+                        if ($selectedEmailIndex -gt 0) { $selectedEmailIndex-- } 
+                        if ($selectedEmailIndex -lt $topDisplayIndex) { $topDisplayIndex = $selectedEmailIndex } 
+                    }
+                    40 { # DownArrow
+                        if ($selectedEmailIndex -lt ($foundMessages.Count - 1)) { $selectedEmailIndex++ } 
+                        if ($selectedEmailIndex -gt $endDisplayIndex) { $topDisplayIndex++ } 
+                    }
+                    33 { # PageUp
+                        $selectedEmailIndex = [Math]::Max(0, $selectedEmailIndex - $displayLines)
+                        $topDisplayIndex = [Math]::Max(0, $topDisplayIndex - $displayLines)
+                        if ($selectedEmailIndex -lt $topDisplayIndex) {$topDisplayIndex = $selectedEmailIndex} 
+                    }
+                    34 { # PageDown
+                        $selectedEmailIndex = [Math]::Min(($foundMessages.Count - 1), $selectedEmailIndex + $displayLines)
+                        $topDisplayIndex = [Math]::Min(($foundMessages.Count - $displayLines), $topDisplayIndex + $displayLines)
+                        if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
+                        if ($selectedEmailIndex -gt ($topDisplayIndex + $displayLines - 1)) {$topDisplayIndex = $selectedEmailIndex - $displayLines + 1} 
+                    }
+                    32 { # Spacebar
+                        if ($foundMessages.Count -gt 0) {
+                            $currentMessageId = $foundMessages[$selectedEmailIndex].Id
+                            if ($spaceSelectedMessageIds.Contains($currentMessageId)) {
+                                $spaceSelectedMessageIds.Remove($currentMessageId) | Out-Null
+                            } else {
+                                $spaceSelectedMessageIds.Add($currentMessageId) | Out-Null
+                            }
+                        }
+                    }
+                    13 { # Enter - Open email (via Show-EmailActionsMenu)
+                        if ($foundMessages.Count -gt 0) {
+                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                            Show-EmailActionsMenu -UserId $UserId -MessageId $foundMessages[$selectedEmailIndex].Id
+                            # Na terugkeer, herlaad zoekresultaten voor het geval er iets is gewijzigd
+                            Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                            try { $foundMessages = Get-MgUserMessage @getMgUserMessageParams } catch { $searchResultLoopActive = $false; Write-Warning "Kon zoekresultaten niet herladen."}
+                            if (-not $foundMessages -or $foundMessages.Count -eq 0) { $searchResultLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $foundMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
+                        }
+                    }
+                    86 { # V - Verplaatsen
+                        $messagesToActOn = New-Object System.Collections.Generic.List[PSObject]
+                        if ($spaceSelectedMessageIds.Count -gt 0) {
+                            $foundMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOn.Add($_) }
+                        } elseif ($foundMessages.Count -gt 0) {
+                            $messagesToActOn.Add($foundMessages[$selectedEmailIndex])
+                        }
+                        if ($messagesToActOn.Count > 0) {
+                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                            Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -DirectAction "Move"
+                            $spaceSelectedMessageIds.Clear()
+                            Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                            try { $foundMessages = Get-MgUserMessage @getMgUserMessageParams } catch { $searchResultLoopActive = $false; Write-Warning "Kon zoekresultaten niet herladen."}
+                            if (-not $foundMessages -or $foundMessages.Count -eq 0) { $searchResultLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $foundMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
+                        }
+                    }
+                    46 { # Delete toets
+                        $messagesToActOn = New-Object System.Collections.Generic.List[PSObject]
+                        if ($spaceSelectedMessageIds.Count -gt 0) {
+                            $foundMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOn.Add($_) }
+                        } elseif ($foundMessages.Count -gt 0) {
+                            $messagesToActOn.Add($foundMessages[$selectedEmailIndex])
+                        }
+                        if ($messagesToActOn.Count > 0) {
+                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                            Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOn -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -DirectAction "Delete"
+                            $spaceSelectedMessageIds.Clear()
+                            Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                            try { $foundMessages = Get-MgUserMessage @getMgUserMessageParams } catch { $searchResultLoopActive = $false; Write-Warning "Kon zoekresultaten niet herladen."}
+                            if (-not $foundMessages -or $foundMessages.Count -eq 0) { $searchResultLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $foundMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
+                        }
+                    }
+                    27 { $searchResultLoopActive = $false } # Escape
+                    default {
+                        if ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $searchResultLoopActive = $false }
+                    }
+                }
+                # Zorg ervoor dat topDisplayIndex en selectedEmailIndex binnen de grenzen blijven na herladen/verwijderen
+                if ($foundMessages -and $foundMessages.Count -gt 0) {
+                    $topDisplayIndex = [Math]::Max(0, [Math]::Min($topDisplayIndex, $foundMessages.Count - $displayLines))
+                    if ($topDisplayIndex -lt 0) {$topDisplayIndex = 0} 
+                    $selectedEmailIndex = [Math]::Max(0, [Math]::Min($selectedEmailIndex, $foundMessages.Count - 1))
+                } elseif (-not $foundMessages -or $foundMessages.Count -eq 0) { # Geen berichten meer
+                    $searchResultLoopActive = $false
+                }
+            } # Einde while ($searchResultLoopActive)
         }
     } catch {
         Write-Error "Fout tijdens het zoeken naar e-mails: $($_.Exception.Message)"
