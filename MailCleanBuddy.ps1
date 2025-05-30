@@ -885,7 +885,7 @@ function Show-StandardizedEmailListView {
                         }
                     }
 
-                    if ($messagesToActOnList.Count > 0) {
+                    if ($messagesToActOnList.Count -gt 0) {
                         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                         Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Delete"
                         $spaceSelectedMessageIds.Clear()
@@ -912,7 +912,7 @@ function Show-StandardizedEmailListView {
                         }
                     }
 
-                    if ($messagesToActOnList.Count > 0) {
+                    if ($messagesToActOnList.Count -gt 0) {
                         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                         Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Move"
                         $spaceSelectedMessageIds.Clear()
