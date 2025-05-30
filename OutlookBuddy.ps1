@@ -2017,7 +2017,7 @@ function Show-RecentEmails {
         }
 
         try {
-            $getMgUserMessageParams.Property = ($baseMessageProperties + $sizeProperty)
+            $getMgUserMessageParams.Property = ($baseMessageProperties + "," + $sizeProperty)
             Write-Host "Poging 1: Recente e-mails ophalen inclusief '$sizeProperty' eigenschap..."
             $recentMessages = Get-MgUserMessage @getMgUserMessageParams
             Write-Host "Recente e-mails succesvol opgehaald met '$sizeProperty' eigenschap."
