@@ -130,3 +130,51 @@ If you choose to use HTTPS or if SSH is not set up, you'll need a PAT. GitHub no
 
 2.  **Using the PAT:**
     When Git prompts you for a password during an HTTPS operation (like `git push`), enter your PAT instead of your GitHub account password. Your username will still be your GitHub username.
+
+---
+**Switching Default Branch from `master` to `main` on GitHub**
+
+If you accidentally pushed to `master` and want `main` to be your default branch, follow these steps:
+
+1.  **Ensure your local `main` branch is up-to-date with `master`:**
+    *   If you don't have a local `main` branch yet, or if `master` has the latest code:
+        ```bash
+        git checkout master
+        git pull origin master  # Make sure your local master is up-to-date with the remote
+        git checkout -b main    # Create a new branch 'main' from 'master'
+        ```
+    *   If you already have a `main` branch and want to ensure it has all commits from `master`:
+        ```bash
+        git checkout main
+        git merge master        # Merge master into main (resolve any conflicts if they occur)
+        ```
+
+2.  **Push the `main` branch to GitHub:**
+    This uploads your `main` branch and sets it to track the remote `main` branch.
+    ```bash
+    git push -u origin main
+    ```
+
+3.  **Change the Default Branch on GitHub:**
+    *   Go to your repository page on GitHub (e.g., `https://github.com/YOUR_USERNAME/YOUR_REPOSITORY_NAME`).
+    *   Click on the **Settings** tab for your repository.
+    *   In the left sidebar, click on **Branches**.
+    *   Under the "Default branch" section, you will likely see `master` selected. Click the switch branches icon (two arrows) or the edit button next to it.
+    *   Select `main` from the dropdown menu.
+    *   Click **Update**. You might need to confirm this change.
+
+4.  **Delete the `master` branch on GitHub:**
+    Once `main` is set as the default branch, you can safely delete the `master` branch on the remote repository.
+    ```bash
+    git push origin --delete master
+    ```
+
+5.  **(Optional) Delete your local `master` branch:**
+    After confirming that `main` is your primary branch and everything is correctly pushed and set on GitHub, you can clean up your local `master` branch.
+    ```bash
+    git branch -d master
+    ```
+    If Git complains that `master` is not fully merged (which shouldn't happen if you followed the steps correctly), and you are *absolutely sure* you want to delete it, you can use the `-D` flag:
+    ```bash
+    git branch -D master
+    ```
