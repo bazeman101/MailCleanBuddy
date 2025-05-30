@@ -171,7 +171,7 @@ function Index-Mailbox {
 
     try {
         $baseMessageProperties = "id", "subject", "sender", "receivedDateTime", "toRecipients", "categories"
-        $sizeProperty = "Size"
+        $sizeProperty = "size" # Gewijzigd van "Size" naar "size" om te voldoen aan Graph API documentatie
         $messages = $null
         $sizePropertySuccessfullyUsed = $true
 
@@ -255,9 +255,9 @@ function Index-Mailbox {
                 $currentMessageSize = $null
                 if ($sizePropertySuccessfullyUsed) {
                     # Als 'Size' werd opgevraagd, probeer de waarde ervan te lezen.
-                    # Controleer of de eigenschap 'Size' bestaat op het $message object om fouten te voorkomen.
-                    if ($message.PSObject.Properties['Size']) {
-                        $currentMessageSize = $message.Size
+                    # Controleer of de eigenschap (nu $sizeProperty, bijv. 'size') bestaat op het $message object om fouten te voorkomen.
+                    if ($message.PSObject.Properties[$sizeProperty]) { # Gebruik de $sizeProperty variabele
+                        $currentMessageSize = $message.$sizeProperty # Gebruik de $sizeProperty variabele
                     }
                     # Als de eigenschap niet bestaat op dit specifieke bericht (ondanks dat het was opgevraagd), blijft $currentMessageSize $null.
                 }
