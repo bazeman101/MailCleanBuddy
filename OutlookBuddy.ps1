@@ -940,12 +940,14 @@ function Show-StandardizedEmailListView {
             13 { # Enter - Open email (of toon acties als het een cache object is)
                 if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
                     $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                    $selectedMessageForAction = $currentMessages[$selectedEmailIndex].MessageForActions
+                    $selectedListViewItem = $currentMessages[$selectedEmailIndex]
+                    $messageObjectToProcess = $selectedListViewItem.MessageForActions # Het Graph of Cache object
+                    $knownGraphMessageId = $selectedListViewItem.Id # Dit is altijd de correcte Graph Message ID
 
-                    if ($selectedMessageForAction.PSObject.Properties['From'] -or $selectedMessageForAction.PSObject.Properties['Sender']) { # Graph Object
-                        Show-EmailActionsMenu -UserId $UserId -MessageId $selectedMessageForAction.Id
+                    if ($messageObjectToProcess.PSObject.Properties['From'] -or $messageObjectToProcess.PSObject.Properties['Sender']) { # Graph Object
+                        Show-EmailActionsMenu -UserId $UserId -MessageId $knownGraphMessageId # Gebruik de bekende ID
                     } else { # Cache Object (messageDetail)
-                        Show-EmailBody -UserId $UserId -MessageObject $selectedMessageForAction
+                        Show-EmailBody -UserId $UserId -MessageObject $messageObjectToProcess -KnownMessageId $knownGraphMessageId # Geef bekende ID mee
                     }
 
                     if ($RefreshDataCallback) {
@@ -1171,7 +1173,8 @@ function Perform-ActionOnMultipleEmails {
 function Show-EmailBody {
     param (
         [string]$UserId,
-        [PSCustomObject]$MessageObject # Het volledige $messageDetail object uit de cache of direct van Graph
+        [PSCustomObject]$MessageObject, # Het volledige $messageDetail object uit de cache of direct van Graph
+        [string]$KnownMessageId = $null # Optionele parameter voor een reeds bekende, betrouwbare Message ID
     )
 
     # CGA Kleuren (ervan uitgaande dat de aanroeper de kleuren beheert voor/na deze functie)
@@ -1185,14 +1188,16 @@ function Show-EmailBody {
 
     # Bepaal de daadwerkelijke Message ID eigenschap
     $effectiveMessageId = $null
-    if ($MessageObject.PSObject.Properties['Id'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.Id)) {
+    if (-not [string]::IsNullOrWhiteSpace($KnownMessageId)) {
+        $effectiveMessageId = $KnownMessageId
+    } elseif ($MessageObject.PSObject.Properties['Id'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.Id)) {
         $effectiveMessageId = $MessageObject.Id
     } elseif ($MessageObject.PSObject.Properties['MessageId'] -and -not [string]::IsNullOrWhiteSpace($MessageObject.MessageId)) {
         $effectiveMessageId = $MessageObject.MessageId
     }
 
     if ([string]::IsNullOrWhiteSpace($effectiveMessageId)) {
-        Write-Error "Kan Message ID niet vinden in het opgegeven berichtobject."
+        Write-Error "Kan Message ID niet vinden (via KnownMessageId of in het opgegeven berichtobject)."
         Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
         $readKeyOptionsError = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
         while ($Host.UI.RawUI.ReadKey($readKeyOptionsError).VirtualKeyCode -ne 27) {}
