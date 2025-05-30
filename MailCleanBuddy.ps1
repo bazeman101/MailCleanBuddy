@@ -61,12 +61,12 @@ function Load-LocalizationStrings {
         $jsonContent = Get-Content -Path $localizationFilePath -Raw -ErrorAction Stop
         $allLocalizations = ConvertFrom-Json -InputObject $jsonContent -ErrorAction Stop
 
-        if ($allLocalizations.ContainsKey($SelectedLang)) {
-            $Script:LocalizedStrings = $allLocalizations[$SelectedLang]
+        if ($allLocalizations.PSObject.Properties.Name -contains $SelectedLang) {
+            $Script:LocalizedStrings = $allLocalizations.$SelectedLang
             $Script:SelectedLanguage = $SelectedLang # Bevestig de geselecteerde taal
-        } elseif ($allLocalizations.ContainsKey("nl")) {
+        } elseif ($allLocalizations.PSObject.Properties.Name -contains "nl") {
             Write-Warning "Language '$SelectedLang' not found in localization file. Falling back to Dutch (nl)."
-            $Script:LocalizedStrings = $allLocalizations["nl"]
+            $Script:LocalizedStrings = $allLocalizations.nl
             $Script:SelectedLanguage = "nl"
         } else {
             Write-Error "Default language 'nl' not found in localization file. Cannot load UI strings."
