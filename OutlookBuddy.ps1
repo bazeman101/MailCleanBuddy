@@ -2026,85 +2026,84 @@ function Show-EmailActionsMenu {
         Write-Host "----------------------------------------------------"
         Write-Host "ID           : $MessageId"
         Write-Host "----------------------------------------------------"
-        Write-Host ""
-        Write-Host "Kies een actie voor deze e-mail:"
-        Write-Host "1. Verwijder deze e-mail"
-        Write-Host "2. Verplaats deze e-mail"
-        Write-Host "3. Bekijk volledige body"
-        Write-Host "4. Download bijlagen (indien aanwezig)"
-        Write-Host "5. Terug naar zoekresultaten"
 
-        $actionChoice = Read-Host "Kies een optie (1-5)"
+        # CGA Kleuren
+        $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+        $cgaInstructionFgColor = [System.ConsoleColor]::White
 
-        switch ($actionChoice) {
-            "1" {
-                $confirmDelete = Read-Host "Weet u zeker dat u deze e-mail permanent wilt verwijderen? (ja/nee)"
-                if ($confirmDelete -eq 'ja') {
-                    try {
-                        Remove-MgUserMessage -UserId $UserId -MessageId $MessageId -ErrorAction Stop
-                        Write-Host "E-mail succesvol verwijderd."
-                        Write-Warning "De lokale cache (indien van toepassing) is mogelijk niet meer accuraat."
-                    } catch {
-                        Write-Error "Fout bij het verwijderen van de e-mail: $($_.Exception.Message)"
-                    }
-                } else {
-                    Write-Host "Verwijderen geannuleerd."
-                }
+        $actionLoopActive = $true
+        while ($actionLoopActive) {
+            # Herteken details en acties elke keer, voor het geval subfuncties het scherm hebben gewijzigd
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host
+
+            Write-Host "Details voor e-mail:"
+            Write-Host "----------------------------------------------------"
+            Write-Host ("Onderwerp    : {0}" -f ($message.Subject | Out-String).Trim())
+            Write-Host ("Van          : {0}" -f ($message.From.EmailAddress.Address | Out-String).Trim())
+            Write-Host ("Aan          : {0}" -f (($message.ToRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+            if ($message.CcRecipients) {
+                Write-Host ("CC           : {0}" -f (($message.CcRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
             }
-            "2" {
-                $destinationFolderId = Get-MailFolderSelection -UserId $UserId
-                if ($destinationFolderId) {
-                    $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
-                    $confirmMove = Read-Host "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'? (ja/nee)"
-                    if ($confirmMove -eq 'ja') {
+            if ($message.BccRecipients) {
+                Write-Host ("BCC          : {0}" -f (($message.BccRecipients | ForEach-Object {$_.EmailAddress.Address}) -join ", "))
+            }
+            Write-Host ("Ontvangen op : {0}" -f (Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss"))
+            Write-Host ("Bijlagen     : {0}" -f ($message.HasAttachments | Out-String).Trim())
+            Write-Host ("Preview      : {0}" -f ($message.BodyPreview | Out-String).Trim())
+            Write-Host "----------------------------------------------------"
+            Write-Host "ID           : $MessageId"
+            Write-Host "----------------------------------------------------"
+            Write-Host ""
+            Write-Host "Acties: [Del] Verwijder | [V] Verplaats | [B] Bekijk Body | [D] Download Bijlagen | [Esc/Q] Terug" -ForegroundColor $cgaInstructionFgColor
+
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
+
+            switch ($keyInfo.VirtualKeyCode) {
+                46 { # Delete
+                    if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail permanent wilt verwijderen?") {
                         try {
-                            Move-MgUserMessage -UserId $UserId -MessageId $MessageId -DestinationId $destinationFolderId -ErrorAction Stop
-                            Write-Host "E-mail succesvol verplaatst naar '$($destinationFolder.DisplayName)'."
-                            Write-Warning "De lokale cache (indien van toepassing) is mogelijk niet meer accuraat."
-                        } catch {
-                            Write-Error "Fout bij het verplaatsen van de e-mail: $($_.Exception.Message)"
+                            Remove-MgUserMessage -UserId $UserId -MessageId $MessageId -ErrorAction Stop
+                            Write-Host "E-mail succesvol verwijderd."
+                            # De cache wordt bijgewerkt door de aanroepende Show-StandardizedEmailListView via de callback
+                        } catch { Write-Error "Fout bij het verwijderen van de e-mail: $($_.Exception.Message)" }
+                        $actionLoopActive = $false # Verlaat de lus en functie
+                    } # Anders (geen bevestiging), blijft de lus actief en wordt het menu opnieuw getoond
+                }
+                86 { # V - Verplaatsen
+                    $destinationFolderId = Get-MailFolderSelection -UserId $UserId
+                    if ($destinationFolderId) {
+                        $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
+                        if (Get-Confirmation -PromptMessage "Weet u zeker dat u deze e-mail wilt verplaatsen naar '$($destinationFolder.DisplayName)'?") {
+                            try {
+                                Move-MgUserMessage -UserId $UserId -MessageId $MessageId -DestinationId $destinationFolderId -ErrorAction Stop
+                                Write-Host "E-mail succesvol verplaatst naar '$($destinationFolder.DisplayName)'."
+                            } catch { Write-Error "Fout bij het verplaatsen van de e-mail: $($_.Exception.Message)" }
+                            $actionLoopActive = $false # Verlaat de lus en functie
                         }
-                    } else {
-                        Write-Host "Verplaatsen geannuleerd."
+                    } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." ; Start-Sleep -Seconds 1 }
+                }
+                27 { $actionLoopActive = $false } # Escape
+                default {
+                    $charPressed = $keyInfo.Character.ToString().ToUpper()
+                    if ($charPressed -eq 'B') { # Bekijk Body
+                        Show-EmailBody -UserId $UserId -MessageObject $message -KnownMessageId $MessageId
+                        # Na terugkeer uit Show-EmailBody, wordt de lus voortgezet en het menu opnieuw getekend.
+                    } elseif ($charPressed -eq 'D') { # Download Bijlagen
+                        if ($message.HasAttachments) {
+                            Download-MessageAttachments -UserId $UserId -MessageId $MessageId -FullMessageObject $message
+                        } else {
+                            Write-Host "Deze e-mail heeft geen bijlagen." ; Start-Sleep -Seconds 1
+                        }
+                        # Na terugkeer uit Download-MessageAttachments, wordt de lus voortgezet.
+                    } elseif ($charPressed -eq 'Q') {
+                        $actionLoopActive = $false
                     }
-                } else {
-                    Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)."
                 }
             }
-            "3" {
-                Clear-Host
-                Write-Host "Volledige body van e-mail (Onderwerp: $($message.Subject)):"
-                Write-Host "----------------------------------------------------"
-                if ($message.Body.ContentType -eq "html") {
-                    Write-Warning "De body is in HTML-formaat. HTML-tags worden als platte tekst weergegeven."
-                    # Voor een echte HTML-weergave zou een browser of een HTML-rendering component nodig zijn.
-                    # Hier tonen we de ruwe HTML of de tekst-equivalent als die beschikbaar is.
-                }
-                Write-Host $message.Body.Content
-                Write-Host "----------------------------------------------------"
-                Read-Host "Druk op Enter om terug te keren naar het actiemenu"
-                # Roep Show-EmailActionsMenu opnieuw aan om terug te keren naar het menu voor dezelfde e-mail
-                Show-EmailActionsMenu -UserId $UserId -MessageId $MessageId
-                return # Voorkom dubbele Read-Host aan het einde van de parent functie
-            }
-            "4" {
-                if ($message.HasAttachments) {
-                    # Geef het volledige $message object mee voor de naamgevingsconventie
-                    Download-MessageAttachments -UserId $UserId -MessageId $MessageId -FullMessageObject $message
-                } else {
-                    Write-Host "Deze e-mail heeft geen bijlagen."
-                }
-                # Roep Show-EmailActionsMenu opnieuw aan om terug te keren naar het menu voor dezelfde e-mail
-                Show-EmailActionsMenu -UserId $UserId -MessageId $MessageId
-                return # Voorkom dubbele Read-Host aan het einde van de parent functie
-            }
-            "5" {
-                # Terugkeren gebeurt automatisch na de switch als er geen 'return' is in Search-Mail
-                Write-Host "Terug naar zoekresultaten..."
-                return
-            }
-            default { Write-Warning "Ongeldige keuze." }
-        }
+        } # Einde while ($actionLoopActive)
 
     } catch {
         Write-Error "Fout bij het ophalen of verwerken van e-mailacties: $($_.Exception.Message)"
@@ -2147,48 +2146,86 @@ function Download-MessageAttachments {
         $attachments = Get-MgUserMessageAttachment -UserId $UserId -MessageId $MessageId -ErrorAction Stop
         if ($null -eq $attachments -or $attachments.Count -eq 0) {
             Write-Warning "Geen bijlagen gevonden voor deze e-mail (ook al gaf HasAttachments 'true' aan)."
-            Read-Host "Druk op Enter om terug te keren"
+            # Read-Host "Druk op Enter om terug te keren" # Verwijderd
+            Start-Sleep -Seconds 1 # Korte pauze zodat de gebruiker de melding kan lezen
             return
         }
 
-        $attachmentOptions = @{}
-        $i = 1
-        Write-Host "Beschikbare bijlagen:"
-        foreach ($attachment in $attachments) {
-            Write-Host "$i. $($attachment.Name) ($($attachment.Size) bytes, Type: $($attachment.ContentType))"
-            $attachmentOptions[$i] = $attachment
-            $i++
+        # CGA Kleuren
+        $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+        $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+        $cgaInstructionFgColor = [System.ConsoleColor]::White
+
+        $attachmentList = @($attachments) # Converteer naar array voor indexering
+        $selectedAttachmentIndex = 0
+        $downloadChoiceMade = $false
+        $attachmentsToDownload = New-Object System.Collections.Generic.List[object]
+
+        while (-not $downloadChoiceMade) {
+            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+            Clear-Host
+            Write-Host "Bijlagen voor e-mail ID: $MessageId"
+            Write-Host "Onderwerp: $($FullMessageObject.Subject)"
+            Write-Host "-------------------------------------"
+            Write-Host "Beschikbare bijlagen:"
+            for ($idx = 0; $idx -lt $attachmentList.Count; $idx++) {
+                $att = $attachmentList[$idx]
+                $line = "{0}. {1} ({2} bytes, Type: {3})" -f ($idx + 1), $att.Name, $att.Size, $att.ContentType
+                if ($idx -eq $selectedAttachmentIndex) {
+                    Write-Host ("> " + $line) -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                } else {
+                    Write-Host ("  " + $line)
+                }
+            }
+            Write-Host "-------------------------------------"
+            Write-Host "[Enter] Download Geselecteerde | [A] Download ALLE | [Esc/Q] Annuleren" -ForegroundColor $cgaInstructionFgColor
+
+            $readKeyOptionsAtt = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfoAtt = $Host.UI.RawUI.ReadKey($readKeyOptionsAtt)
+
+            switch ($keyInfoAtt.VirtualKeyCode) {
+                38 { # Up
+                    if ($selectedAttachmentIndex -gt 0) { $selectedAttachmentIndex-- }
+                }
+                40 { # Down
+                    if ($selectedAttachmentIndex -lt ($attachmentList.Count - 1)) { $selectedAttachmentIndex++ }
+                }
+                13 { # Enter
+                    $attachmentsToDownload.Add($attachmentList[$selectedAttachmentIndex])
+                    $downloadChoiceMade = $true
+                }
+                27 { # Escape
+                    Write-Host "Downloaden geannuleerd." ; Start-Sleep -Seconds 1
+                    return
+                }
+                default {
+                    $charAtt = $keyInfoAtt.Character.ToString().ToUpper()
+                    if ($charAtt -eq 'A') {
+                        $attachmentList | ForEach-Object { $attachmentsToDownload.Add($_) }
+                        $downloadChoiceMade = $true
+                    } elseif ($charAtt -eq 'Q') {
+                        Write-Host "Downloaden geannuleerd." ; Start-Sleep -Seconds 1
+                        return
+                    }
+                }
+            }
         }
-        Write-Host "-------------------------------------"
-        Write-Host "A. Download alle bijlagen"
-        Write-Host "C. Annuleren"
 
-        $choice = Read-Host "Kies een bijlage om te downloaden (nummer), A voor alles, of C om te annuleren"
-
-        if ($choice -eq 'C' -or $choice -eq 'c') {
-            Write-Host "Downloaden geannuleerd."
+        if ($attachmentsToDownload.Count -eq 0) { # Zou niet moeten gebeuren als $downloadChoiceMade true is
+            Write-Host "Geen bijlagen geselecteerd voor download." ; Start-Sleep -Seconds 1
             return
         }
 
-        $defaultDownloadPath = Join-Path -Path $PSScriptRoot -ChildPath "_attachments" # Mapnaam gewijzigd
+        $defaultDownloadPath = Join-Path -Path $PSScriptRoot -ChildPath "_attachments"
         $downloadPath = Read-Host "Voer het pad in voor de downloads (standaard: $defaultDownloadPath)"
         if ([string]::IsNullOrWhiteSpace($downloadPath)) {
             $downloadPath = $defaultDownloadPath
         }
 
         if (-not (Ensure-DownloadPath -Path $downloadPath)) {
-            Read-Host "Druk op Enter om terug te keren"
-            return
-        }
-
-        $attachmentsToDownload = New-Object System.Collections.Generic.List[object]
-        if ($choice -eq 'A' -or $choice -eq 'a') {
-            $attachments | ForEach-Object { $attachmentsToDownload.Add($_) }
-        } elseif ($attachmentOptions.ContainsKey($choice)) {
-            $attachmentsToDownload.Add($attachmentOptions[$choice])
-        } else {
-            Write-Warning "Ongeldige keuze."
-            Read-Host "Druk op Enter om terug te keren"
+            # Read-Host "Druk op Enter om terug te keren" # Verwijderd
+            Start-Sleep -Seconds 1
             return
         }
 
