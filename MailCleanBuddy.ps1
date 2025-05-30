@@ -255,11 +255,11 @@ function Save-LocalCache {
 function Index-Mailbox {
     param($UserId)
 
-    Write-Host "Starten met indexeren van mailbox voor $UserId..."
+    Write-Host (Get-LocStr "msg_indexingMailbox" -FormatArgs $UserId)
     if ($MaxEmailsToIndex -gt 0) {
-        Write-Warning "** MaxEmailsToIndex ACTIEF: Maximaal de laatste $MaxEmailsToIndex e-mails worden geïndexeerd. **"
+        Write-Warning (Get-LocStr "msg_indexingMaxEmailsActive" -FormatArgs $MaxEmailsToIndex)
     } elseif ($TestRun.IsPresent) {
-        Write-Warning "** TESTMODUS ACTIEF: Alleen de laatste 100 e-mails worden geïndexeerd. **"
+        Write-Warning (Get-LocStr "msg_indexingTestModeActive")
     } # Anders, volledige indexering (geen specifieke waarschuwing hier nodig)
 
     $Script:SenderCache = @{} # Reset of initialiseer de cache
@@ -282,27 +282,27 @@ function Index-Mailbox {
         if ($MaxEmailsToIndex -gt 0) {
             $getMgUserMessageParams.Top = $MaxEmailsToIndex
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
-            Write-Host "Configuratie: Ophalen van de laatste $MaxEmailsToIndex berichten (incl. MAPI size)."
+            Write-Host (Get-LocStr "msg_indexingFetchingMessagesConfig" -FormatArgs $MaxEmailsToIndex)
         } elseif ($TestRun.IsPresent) {
             $getMgUserMessageParams.Top = 100
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
-            Write-Host "Configuratie: Ophalen van de laatste 100 berichten (Testmodus, incl. MAPI size)."
+            Write-Host (Get-LocStr "msg_indexingFetchingMessagesConfigTest")
         } else {
             $getMgUserMessageParams.All = $true
-            Write-Host "Configuratie: Ophalen van alle berichten (Volledige modus, incl. MAPI size). Dit kan enige tijd duren."
+            Write-Host (Get-LocStr "msg_indexingFetchingMessagesConfigAll")
         }
 
-        Write-Host "Berichten ophalen..."
+        Write-Host (Get-LocStr "msg_indexingFetchingMessages")
         $messages = Get-MgUserMessage @getMgUserMessageParams
-        Write-Host "Berichten succesvol opgehaald."
+        Write-Host (Get-LocStr "msg_indexingMessagesFetched")
 
         if ($null -eq $messages -or $messages.Count -eq 0) {
-            Write-Warning "Geen berichten gevonden in de mailbox tijdens het indexeren."
+            Write-Warning (Get-LocStr "msg_indexingNoMessagesFound")
             # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
             return
         }
 
-        Write-Host "$($messages.Count) berichten gevonden. Verwerken van afzenders..."
+        Write-Host (Get-LocStr "msg_indexingProcessingSenders" -FormatArgs $messages.Count)
 
         $processedCount = 0
         $totalMessages = $messages.Count
@@ -313,7 +313,7 @@ function Index-Mailbox {
         foreach ($message in $messages) {
             $processedCount++
             if ($processedCount % $updateInterval -eq 0 -or $processedCount -eq $totalMessages) {
-                Write-Progress -Activity "Mailbox Indexeren" -Status "Verwerken van berichten..." -PercentComplete (($processedCount / $totalMessages) * 100) -CurrentOperation "$processedCount van $totalMessages berichten verwerkt."
+                Write-Progress -Activity (Get-LocStr "msg_indexingProgressActivity") -Status (Get-LocStr "msg_indexingProgressStatus") -PercentComplete (($processedCount / $totalMessages) * 100) -CurrentOperation (Get-LocStr "msg_indexingProgressOperation" -FormatArgs $processedCount, $totalMessages)
             }
 
             $emailSenderAddressInfo = $message.Sender.EmailAddress
@@ -322,7 +322,7 @@ function Index-Mailbox {
                 $senderFullAddress = $emailSenderAddressInfo.Address
                 $domain = ($senderFullAddress -split '@')[1]
                 if ([string]::IsNullOrWhiteSpace($domain)) {
-                    $domain = "onbekend_domein" # Fallback voor ongeldige e-mailadressen
+                    $domain = (Get-LocStr "msg_indexingFallbackDomain") # Fallback voor ongeldige e-mailadressen
                 }
                 $domainKey = $domain.ToLowerInvariant()
                 # De 'naam' voor de cache entry wordt nu het domein zelf.
@@ -333,14 +333,14 @@ function Index-Mailbox {
                 $currentMessageSize = $null
                 $mapiSizeProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
-                    try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size '$($mapiSizeProp.Value)' niet converteren (Index) ID $($message.Id)." }
+                    try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose (Get-LocStr "msg_indexingVerboseMapiSizeError" -FormatArgs $mapiSizeProp.Value, $message.Id) }
                 } # Fallback naar $message.size is niet meer nodig/mogelijk
 
                 # Bepaal of er bijlagen zijn
                 $currentHasAttachments = $false # Default
                 $mapiAttachProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
                 if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
-                    try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Index) ID $($message.Id)." }
+                    try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose (Get-LocStr "msg_indexingVerboseMapiHasAttachError" -FormatArgs $mapiAttachProp.Value, $message.Id) }
                 } # Fallback naar $message.hasAttachments is niet meer nodig/mogelijk
 
                 # Creëer een object met de details van het huidige bericht
@@ -369,19 +369,19 @@ function Index-Mailbox {
                 }
             }
         }
-        Write-Progress -Activity "Mailbox Indexeren" -Completed
+        Write-Progress -Activity (Get-LocStr "msg_indexingProgressActivity") -Completed
 
         $uniqueSenders = $Script:SenderCache.Keys.Count
-        Write-Host "Indexeren voltooid. $uniqueSenders unieke afzenderdome(i)n(en) gevonden." # Aangepast voor domeinen
+        Write-Host (Get-LocStr "msg_indexingComplete" -FormatArgs $uniqueSenders) # Aangepast voor domeinen
 
         Save-LocalCache # Sla de nieuw geïndexeerde cache op
     } catch {
-        Write-Error "Fout tijdens het indexeren van de mailbox: $($_.Exception.Message)"
+        Write-Error (Get-LocStr "msg_indexingError" -FormatArgs $_.Exception.Message)
         if ($_.Exception.InnerException) {
-            Write-Error "Inner Exception: $($_.Exception.InnerException.Message)"
+            Write-Error (Get-LocStr "msg_indexingInnerException" -FormatArgs $_.Exception.InnerException.Message)
         }
         if ($_.ScriptStackTrace) {
-            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+            Write-Error (Get-LocStr "msg_indexingStackTrace" -FormatArgs $_.ScriptStackTrace)
         }
     }
     # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Al eerder verwijderd
@@ -412,10 +412,10 @@ function Show-SenderOverview {
             $Host.UI.RawUI.ForegroundColor = $cgaWarningFgColor
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
             Clear-Host
-            Write-Host "De mailbox is nog niet geïndexeerd of de index is leeg." -ForegroundColor $cgaWarningFgColor
-            Write-Host "De automatische indexering bij het starten is mogelijk mislukt of er zijn geen gegevens gevonden. Controleer eventuele foutmeldingen bij het opstarten of probeer het script opnieuw." -ForegroundColor $cgaWarningFgColor
+            Write-Host (Get-LocStr "senderOverview_notIndexedOrEmpty") -ForegroundColor $cgaWarningFgColor
+            Write-Host (Get-LocStr "senderOverview_autoIndexFailed") -ForegroundColor $cgaWarningFgColor
             $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
-            Write-Host "Druk op Escape of Q om terug te keren."
+            Write-Host (Get-LocStr "common_pressEscQToReturn")
             while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
             return # Terug naar hoofdmenu
         }
@@ -435,9 +435,9 @@ function Show-SenderOverview {
             $Host.UI.RawUI.ForegroundColor = $cgaFgColor
             $Host.UI.RawUI.BackgroundColor = $cgaBgColor
             Clear-Host
-            Write-Host "Geen domeinen (meer) gevonden in de cache."
+            Write-Host (Get-LocStr "senderOverview_noDomainsInCache")
             $Host.UI.RawUI.ForegroundColor = $cgaInstructionFgColor
-            Write-Host "Druk op Escape of Q om terug te keren."
+            Write-Host (Get-LocStr "common_pressEscQToReturn")
             while($true){ $key = $Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
             return # Terug naar hoofdmenu
         }
@@ -454,8 +454,8 @@ function Show-SenderOverview {
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
 
-        $title = "Overzicht van afzenderdomeinen (Scrollen: PgUp/PgDn/↑/↓, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)"
-        $headerLine = "{0,-5} {1,-7} {2,-50}" -f " ", "Aantal", "Domein" # Indicator kolom leeg voor nu
+        $title = (Get-LocStr "senderOverview_title")
+        $headerLine = "{0,-5} {1,-7} {2,-50}" -f " ", (Get-LocStr "senderOverview_headerCount"), (Get-LocStr "senderOverview_headerDomain") # Indicator kolom leeg voor nu
         $separator = "-" * ($Host.UI.RawUI.WindowSize.Width -1)
 
         Write-Host $title -ForegroundColor $cgaInstructionFgColor
@@ -483,7 +483,7 @@ function Show-SenderOverview {
         }
 
         Write-Host $separator
-        Write-Host ("Getoond: {0}-{1} van {2}" -f ($topDisplayIndex+1), ($endDisplayIndex+1), $sortedDomains.Count) -ForegroundColor $cgaInstructionFgColor
+        Write-Host ((Get-LocStr "senderOverview_footerShownOf") -f ($topDisplayIndex+1), ($endDisplayIndex+1), $sortedDomains.Count) -ForegroundColor $cgaInstructionFgColor
 
         # Wacht op toetsaanslag
         $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
@@ -523,7 +523,7 @@ function Show-SenderOverview {
                         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                         Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $selectedDomainObject.Domain -AllMessages $messagesToActOn -DirectAction "Move"
                     } else {
-                        Write-Warning "Geen e-mails gevonden in de cache voor domein $($selectedDomainObject.Domain) om te verplaatsen."
+                        Write-Warning (Get-LocStr "senderOverview_noEmailsToMoveForDomain" -FormatArgs $selectedDomainObject.Domain)
                         Start-Sleep -Seconds 2
                     }
                 }
@@ -536,7 +536,7 @@ function Show-SenderOverview {
                         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                         Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $selectedDomainObject.Domain -AllMessages $messagesToActOn -DirectAction "Delete"
                     } else {
-                        Write-Warning "Geen e-mails gevonden in de cache voor domein $($selectedDomainObject.Domain) om te verwijderen."
+                        Write-Warning (Get-LocStr "senderOverview_noEmailsToDeleteForDomain" -FormatArgs $selectedDomainObject.Domain)
                         Start-Sleep -Seconds 2
                     }
                 }

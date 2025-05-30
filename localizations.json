@@ -73,7 +73,18 @@
     "cache_loadedSkipIndex": "Lokale cache geladen. Volledige indexering wordt overgeslagen voor snellere start.",
     "cache_useMenuRToRefresh": "Gebruik menu-optie 'R' om de index handmatig vanaf de server te verversen.",
     "cache_noValidCacheStartIndexing": "Geen (valide) lokale cache gevonden. Starten met automatische indexering van de mailbox...",
-    "cache_autoIndexingComplete": "Automatische indexering voltooid (of poging daartoe)."
+    "cache_autoIndexingComplete": "Automatische indexering voltooid (of poging daartoe).",
+    "msg_indexingFetchingMessagesConfigTest": "Configuratie: Ophalen van de laatste 100 berichten (Testmodus, incl. MAPI size).",
+    "senderOverview_notIndexedOrEmpty": "De mailbox is nog niet geïndexeerd of de index is leeg.",
+    "senderOverview_autoIndexFailed": "De automatische indexering bij het starten is mogelijk mislukt of er zijn geen gegevens gevonden. Controleer eventuele foutmeldingen bij het opstarten of probeer het script opnieuw.",
+    "common_pressEscQToReturn": "Druk op Escape of Q om terug te keren.",
+    "senderOverview_noDomainsInCache": "Geen domeinen (meer) gevonden in de cache.",
+    "senderOverview_title": "Overzicht van afzenderdomeinen (Scrollen: PgUp/PgDn/↑/↓, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)",
+    "senderOverview_headerCount": "Aantal",
+    "senderOverview_headerDomain": "Domein",
+    "senderOverview_footerShownOf": "Getoond: {0}-{1} van {2}",
+    "senderOverview_noEmailsToMoveForDomain": "Geen e-mails gevonden in de cache voor domein {0} om te verplaatsen.",
+    "senderOverview_noEmailsToDeleteForDomain": "Geen e-mails gevonden in de cache voor domein {0} om te verwijderen."
   },
   "en": {
     "param_mailboxEmail_help": "The email address of the mailbox to manage.",
@@ -149,16 +160,49 @@
     "cache_loadedSkipIndex": "Local cache loaded. Full indexing will be skipped for a faster start.",
     "cache_useMenuRToRefresh": "Use menu option 'R' to manually refresh the index from the server.",
     "cache_noValidCacheStartIndexing": "No (valid) local cache found. Starting automatic mailbox indexing...",
-    "cache_autoIndexingComplete": "Automatic indexing completed (or attempt thereof)."
+    "cache_autoIndexingComplete": "Automatic indexing completed (or attempt thereof).",
+    "msg_indexingFetchingMessagesConfigTest": "Configuration: Fetching the latest 100 messages (Test mode, incl. MAPI size).",
+    "senderOverview_notIndexedOrEmpty": "The mailbox has not been indexed yet or the index is empty.",
+    "senderOverview_autoIndexFailed": "Automatic indexing on startup may have failed or no data was found. Check for error messages on startup or try running the script again.",
+    "common_pressEscQToReturn": "Press Escape or Q to return.",
+    "senderOverview_noDomainsInCache": "No domains (anymore) found in the cache.",
+    "senderOverview_title": "Sender Domain Overview (Scroll: PgUp/PgDn/↑/↓, Enter: Open, V: Move, Del: Delete, Esc/Q: Back)",
+    "senderOverview_headerCount": "Count",
+    "senderOverview_headerDomain": "Domain",
+    "senderOverview_footerShownOf": "Showing: {0}-{1} of {2}",
+    "senderOverview_noEmailsToMoveForDomain": "No emails found in cache for domain {0} to move.",
+    "senderOverview_noEmailsToDeleteForDomain": "No emails found in cache for domain {0} to delete."
   },
   "de": {
     "mainMenu_title": "MailCleanBuddy - Hauptmenü für {0}",
     "mainMenu_option1": "1. Absenderübersicht (aus Cache)",
-    "mainMenu_optionQ": "Q. Beenden"
+    "mainMenu_optionQ": "Q. Beenden",
+    "msg_indexingFetchingMessagesConfigTest": "Konfiguration: Die neuesten 100 Nachrichten werden abgerufen (Testmodus, inkl. MAPI-Größe).",
+    "senderOverview_notIndexedOrEmpty": "Das Postfach wurde noch nicht indiziert oder der Index ist leer.",
+    "senderOverview_autoIndexFailed": "Die automatische Indizierung beim Start ist möglicherweise fehlgeschlagen oder es wurden keine Daten gefunden. Überprüfen Sie Fehlermeldungen beim Start oder versuchen Sie, das Skript erneut auszuführen.",
+    "common_pressEscQToReturn": "Drücken Sie Escape oder Q, um zurückzukehren.",
+    "senderOverview_noDomainsInCache": "Keine Domains (mehr) im Cache gefunden.",
+    "senderOverview_title": "Absenderdomain-Übersicht (Scrollen: PgUp/PgDn/↑/↓, Enter: Öffnen, V: Verschieben, Del: Löschen, Esc/Q: Zurück)",
+    "senderOverview_headerCount": "Anzahl",
+    "senderOverview_headerDomain": "Domain",
+    "senderOverview_footerShownOf": "Angezeigt: {0}-{1} von {2}",
+    "senderOverview_noEmailsToMoveForDomain": "Keine E-Mails im Cache für Domain {0} zum Verschieben gefunden.",
+    "senderOverview_noEmailsToDeleteForDomain": "Keine E-Mails im Cache für Domain {0} zum Löschen gefunden."
   },
   "fr": {
     "mainMenu_title": "MailCleanBuddy - Menu principal pour {0}",
     "mainMenu_option1": "1. Aperçu des expéditeurs (du cache)",
-    "mainMenu_optionQ": "Q. Quitter"
+    "mainMenu_optionQ": "Q. Quitter",
+    "msg_indexingFetchingMessagesConfigTest": "Configuration : Récupération des 100 derniers messages (Mode test, incl. taille MAPI).",
+    "senderOverview_notIndexedOrEmpty": "La boîte aux lettres n'a pas encore été indexée ou l'index est vide.",
+    "senderOverview_autoIndexFailed": "L'indexation automatique au démarrage a peut-être échoué ou aucune donnée n'a été trouvée. Vérifiez les messages d'erreur au démarrage ou essayez de réexécuter le script.",
+    "common_pressEscQToReturn": "Appuyez sur Échap ou Q pour revenir.",
+    "senderOverview_noDomainsInCache": "Aucun domaine (plus) trouvé dans le cache.",
+    "senderOverview_title": "Aperçu des domaines d'expéditeurs (Défilement : PgUp/PgDn/↑/↓, Entrée : Ouvrir, V : Déplacer, Suppr : Supprimer, Échap/Q : Retour)",
+    "senderOverview_headerCount": "Nombre",
+    "senderOverview_headerDomain": "Domaine",
+    "senderOverview_footerShownOf": "Affichage : {0}-{1} sur {2}",
+    "senderOverview_noEmailsToMoveForDomain": "Aucun e-mail trouvé dans le cache pour le domaine {0} à déplacer.",
+    "senderOverview_noEmailsToDeleteForDomain": "Aucun e-mail trouvé dans le cache pour le domaine {0} à supprimer."
   }
 }
