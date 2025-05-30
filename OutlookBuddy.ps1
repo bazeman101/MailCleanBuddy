@@ -2556,7 +2556,8 @@ function Show-MainMenu {
                     Write-Host "Volledige indexering vanaf server wordt gestart..."
                     Index-Mailbox -UserId $UserEmail # Deze functie slaat de cache zelf op
                     Write-Host "Indexering voltooid. Druk op een toets om het menu opnieuw te laden."
-                    $Host.UI.RawUI.ReadKey($true) | Out-Null # Wacht op toetsaanslag
+                    $readKeyOptionsRefresh = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+                    $Host.UI.RawUI.ReadKey($readKeyOptionsRefresh) | Out-Null # Wacht op toetsaanslag
                 }
                 "Q" {
                     Write-Host "Afsluiten..."
