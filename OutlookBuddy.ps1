@@ -170,54 +170,35 @@ function Index-Mailbox {
     $Script:SenderCache = @{} # Reset of initialiseer de cache
 
     try {
-        $baseMessageProperties = "id", "subject", "sender", "receivedDateTime", "toRecipients", "categories"
-        $sizeProperty = "size" # Gewijzigd van "Size" naar "size" om te voldoen aan Graph API documentatie
+        $baseMessageProperties = "id,subject,sender,receivedDateTime,toRecipients,categories,size" # Standaard 'size' blijft als fallback
+        $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
+        $expandMessageSizeProperty = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId')"
         $messages = $null
-        $sizePropertySuccessfullyUsed = $true
 
         # Bouw de parameters voor Get-MgUserMessage
         $getMgUserMessageParams = @{
             UserId      = $UserId
+            Property    = $baseMessageProperties
+            ExpandProperty = $expandMessageSizeProperty
             ErrorAction = "Stop"
         }
 
         if ($MaxEmailsToIndex -gt 0) {
             $getMgUserMessageParams.Top = $MaxEmailsToIndex
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
-            Write-Host "Configuratie: Ophalen van de laatste $MaxEmailsToIndex berichten."
+            Write-Host "Configuratie: Ophalen van de laatste $MaxEmailsToIndex berichten (incl. MAPI size)."
         } elseif ($TestRun.IsPresent) {
             $getMgUserMessageParams.Top = 100
             $getMgUserMessageParams.OrderBy = "receivedDateTime desc"
-            Write-Host "Configuratie: Ophalen van de laatste 100 berichten (Testmodus)."
+            Write-Host "Configuratie: Ophalen van de laatste 100 berichten (Testmodus, incl. MAPI size)."
         } else {
             $getMgUserMessageParams.All = $true
-            Write-Host "Configuratie: Ophalen van alle berichten (Volledige modus). Dit kan enige tijd duren."
+            Write-Host "Configuratie: Ophalen van alle berichten (Volledige modus, incl. MAPI size). Dit kan enige tijd duren."
         }
 
-        try {
-            $currentMessageProperties = $baseMessageProperties + $sizeProperty
-            $getMgUserMessageParams.Property = $currentMessageProperties
-            Write-Host "Poging 1: Berichten ophalen inclusief '$sizeProperty' eigenschap..."
-            $messages = Get-MgUserMessage @getMgUserMessageParams
-            Write-Host "Berichten succesvol opgehaald met '$sizeProperty' eigenschap."
-        }
-        catch {
-            $errorMessage = $_.Exception.Message
-            if ($_.Exception.InnerException) { $errorMessage = $_.Exception.InnerException.Message }
-
-            if ($errorMessage -like "*Could not find a property named 'size' on type 'Microsoft.OutlookServices.Message'*") {
-                Write-Warning "Fout bij ophalen berichten met eigenschap '$sizeProperty': $errorMessage"
-                Write-Host "Poging 2: Berichten ophalen ZONDER '$sizeProperty' eigenschap..."
-                $sizePropertySuccessfullyUsed = $false
-
-                $getMgUserMessageParams.Property = $baseMessageProperties # Gebruik nu basis properties
-                $messages = Get-MgUserMessage @getMgUserMessageParams
-                Write-Host "Berichten succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken of leeg zijn."
-            }
-            else {
-                throw $_
-            }
-        }
+        Write-Host "Berichten ophalen..."
+        $messages = Get-MgUserMessage @getMgUserMessageParams
+        Write-Host "Berichten succesvol opgehaald."
 
         if ($null -eq $messages -or $messages.Count -eq 0) {
             Write-Warning "Geen berichten gevonden in de mailbox tijdens het indexeren."
@@ -251,17 +232,21 @@ function Index-Mailbox {
                 # De 'naam' voor de cache entry wordt nu het domein zelf.
                 # De oorspronkelijke $senderName ($sender.Name) wordt niet meer direct gebruikt voor de groepering.
 
-                # Bepaal de grootte van het bericht, afhankelijk van of de 'Size' eigenschap succesvol kon worden opgevraagd
+                # Bepaal de grootte van het bericht
                 $currentMessageSize = $null
-                if ($sizePropertySuccessfullyUsed) {
-                    # Als 'Size' werd opgevraagd, probeer de waarde ervan te lezen.
-                    # Controleer of de eigenschap (nu $sizeProperty, bijv. 'size') bestaat op het $message object om fouten te voorkomen.
-                    if ($message.PSObject.Properties[$sizeProperty]) { # Gebruik de $sizeProperty variabele
-                        $currentMessageSize = $message.$sizeProperty # Gebruik de $sizeProperty variabele
+                $mapiSizeProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
+                if ($mapiSizeProp -and $mapiSizeProp.Value) {
+                    try {
+                        $currentMessageSize = [long]$mapiSizeProp.Value
+                    } catch {
+                        Write-Verbose "Kon MAPI size property waarde '$($mapiSizeProp.Value)' niet converteren naar long voor bericht ID $($message.Id)."
                     }
-                    # Als de eigenschap niet bestaat op dit specifieke bericht (ondanks dat het was opgevraagd), blijft $currentMessageSize $null.
+                } elseif ($message.PSObject.Properties['size'] -and $message.size -ne $null) { # Fallback naar standaard 'size'
+                    $currentMessageSize = $message.size
+                    Write-Verbose "MAPI size niet gevonden voor bericht ID $($message.Id), fallback naar standaard 'size' property."
+                } else {
+                    Write-Verbose "Geen grootte (MAPI of standaard) gevonden voor bericht ID $($message.Id)."
                 }
-                # Als $sizePropertySuccessfullyUsed $false is, werd 'Size' niet opgevraagd, dus $currentMessageSize blijft $null.
 
                 # Creëer een object met de details van het huidige bericht
                 $messageDetail = @{
@@ -1779,16 +1764,18 @@ function Search-Mail {
         Write-Host "Zoeken naar e-mails met term: '$searchTerm'..."
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
-        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview"
-        $sizeProperty = "size"
+        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' als fallback
+        $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
+        $expandMessageSizeProperty = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId')"
         $foundMessages = $null
-        $sizePropertySuccessfullyUsed = $true
 
         $getMgUserMessageParams = @{
-            UserId      = $UserId
-            Search      = $searchTerm
-            Top         = 100 # Beperk het aantal resultaten
-            ErrorAction = "Stop"
+            UserId         = $UserId
+            Search         = $searchTerm
+            Top            = 100 # Beperk het aantal resultaten
+            Property       = $baseMessageProperties
+            ExpandProperty = $expandMessageSizeProperty
+            ErrorAction    = "Stop"
         }
 
         if ($IsTestRun.IsPresent) {
@@ -1796,28 +1783,9 @@ function Search-Mail {
             Write-Host "(Testmodus actief: resultaten gesorteerd op nieuwste eerst)"
         }
 
-        try {
-            $getMgUserMessageParams.Property = ($baseMessageProperties + "," + $sizeProperty)
-            Write-Host "Poging 1: Zoekresultaten ophalen inclusief '$sizeProperty' eigenschap..."
-            $foundMessages = Get-MgUserMessage @getMgUserMessageParams
-            Write-Host "Zoekresultaten succesvol opgehaald met '$sizeProperty' eigenschap."
-        }
-        catch {
-            $errorMessage = $_.Exception.Message
-            if ($_.Exception.InnerException) { $errorMessage = $_.Exception.InnerException.Message }
-
-            if ($errorMessage -like "*Could not find a property named '$sizeProperty' on type 'Microsoft.OutlookServices.Message'*") {
-                Write-Warning "Fout bij ophalen zoekresultaten met eigenschap '$sizeProperty': $errorMessage"
-                Write-Host "Poging 2: Zoekresultaten ophalen ZONDER '$sizeProperty' eigenschap..."
-                $sizePropertySuccessfullyUsed = $false
-                $getMgUserMessageParams.Property = $baseMessageProperties
-                $foundMessages = Get-MgUserMessage @getMgUserMessageParams
-                Write-Host "Zoekresultaten succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken."
-            }
-            else {
-                throw $_ # Gooi de fout opnieuw als het niet de verwachte 'size' fout is
-            }
-        }
+        Write-Host "Zoekresultaten ophalen (incl. MAPI size)..."
+        $foundMessages = Get-MgUserMessage @getMgUserMessageParams
+        Write-Host "Zoekresultaten succesvol opgehaald."
 
         if ($null -eq $foundMessages -or $foundMessages.Count -eq 0) {
             Write-Host "Geen e-mails gevonden die overeenkomen met de zoekterm '$searchTerm'."
@@ -1828,9 +1796,15 @@ function Search-Mail {
             $messagesForView = @()
             foreach ($msg in $foundMessages) {
                 $currentMessageSize = $null
-                if ($sizePropertySuccessfullyUsed -and $msg.PSObject.Properties[$sizeProperty]) {
-                    $currentMessageSize = $msg.$sizeProperty
+                $mapiSizeProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
+                if ($mapiSizeProp -and $mapiSizeProp.Value) {
+                    try {
+                        $currentMessageSize = [long]$mapiSizeProp.Value
+                    } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Zoeken) ID $($msg.Id)." }
+                } elseif ($msg.PSObject.Properties['size'] -and $msg.size -ne $null) {
+                    $currentMessageSize = $msg.size
                 }
+
                 $messagesForView += [PSCustomObject]@{
                     Id                 = $msg.Id
                     ReceivedDateTime   = $msg.ReceivedDateTime
@@ -1844,10 +1818,12 @@ function Search-Mail {
 
             # Callback functie om data te herladen
             $refreshCallback = {
-                param($CurrentUserId, $CallbackContext) # $CallbackContext is een hashtable
-                $CurrentGetMgUserMessageParamsForSearch = $CallbackContext.Params
-                $CurrentSizePropertySuccessfullyUsed = $CallbackContext.SizeUsed
-                $sizePropertyForCallback = "size" # Consistent houden
+                param($CurrentUserId, $CallbackContext) # $CallbackContext is een hashtable met Params
+                $CurrentGetMgUserMessageParamsForSearch = $CallbackContext.Params # Bevat al ExpandProperty
+                # $messageSizeMapiPropertyId moet hier opnieuw gedefinieerd worden of uit een hogere scope komen.
+                # Voor eenvoud, definieer opnieuw binnen de callback.
+                $localMessageSizeMapiPropertyId = "Integer 0x0E08"
+
 
                 Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForSearch -ErrorAction SilentlyContinue
@@ -1855,9 +1831,13 @@ function Search-Mail {
                 if ($reloadedMessages) {
                     foreach ($rmsg in $reloadedMessages) {
                         $reloadedMessageSize = $null
-                        if ($CurrentSizePropertySuccessfullyUsed -and $rmsg.PSObject.Properties[$sizePropertyForCallback]) {
-                             $reloadedMessageSize = $rmsg.$sizePropertyForCallback
+                        $reloadedMapiSizeProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageSizeMapiPropertyId } | Select-Object -First 1
+                        if ($reloadedMapiSizeProp -and $reloadedMapiSizeProp.Value) {
+                            try { $reloadedMessageSize = [long]$reloadedMapiSizeProp.Value } catch {}
+                        } elseif ($rmsg.PSObject.Properties['size'] -and $rmsg.size -ne $null) {
+                            $reloadedMessageSize = $rmsg.size
                         }
+
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
                             ReceivedDateTime   = $rmsg.ReceivedDateTime
@@ -1873,8 +1853,8 @@ function Search-Mail {
             }
 
             $callbackContext = @{
-                Params = $getMgUserMessageParams # Dit bevat de correcte 'Property' (met of zonder size)
-                SizeUsed = $sizePropertySuccessfullyUsed
+                Params = $getMgUserMessageParams # Bevat nu Property en ExpandProperty
+                # SizeUsed is niet meer nodig in de context
             }
 
             Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Zoekresultaten voor '$searchTerm'" -AllowActions $true -DomainToUpdateCache "SEARCH_RESULTS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
@@ -1900,40 +1880,23 @@ function Show-RecentEmails {
     Write-Host "Ophalen van de laatste 100 e-mails voor $UserId..."
 
     try {
-        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview"
-        $sizeProperty = "size" # Let op: kleine letter 's' zoals in de foutmelding
+        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' als fallback
+        $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
+        $expandMessageSizeProperty = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId')"
         $recentMessages = $null
-        $sizePropertySuccessfullyUsed = $true
 
         $getMgUserMessageParams = @{
-            UserId      = $UserId
-            Top         = 100
-            OrderBy     = "receivedDateTime desc"
-            ErrorAction = "Stop"
+            UserId         = $UserId
+            Top            = 100
+            OrderBy        = "receivedDateTime desc"
+            Property       = $baseMessageProperties
+            ExpandProperty = $expandMessageSizeProperty
+            ErrorAction    = "Stop"
         }
 
-        try {
-            $getMgUserMessageParams.Property = ($baseMessageProperties + "," + $sizeProperty)
-            Write-Host "Poging 1: Recente e-mails ophalen inclusief '$sizeProperty' eigenschap..."
-            $recentMessages = Get-MgUserMessage @getMgUserMessageParams
-            Write-Host "Recente e-mails succesvol opgehaald met '$sizeProperty' eigenschap."
-        }
-        catch {
-            $errorMessage = $_.Exception.Message
-            if ($_.Exception.InnerException) { $errorMessage = $_.Exception.InnerException.Message }
-
-            if ($errorMessage -like "*Could not find a property named '$sizeProperty' on type 'Microsoft.OutlookServices.Message'*") {
-                Write-Warning "Fout bij ophalen recente e-mails met eigenschap '$sizeProperty': $errorMessage"
-                Write-Host "Poging 2: Recente e-mails ophalen ZONDER '$sizeProperty' eigenschap..."
-                $sizePropertySuccessfullyUsed = $false
-                $getMgUserMessageParams.Property = $baseMessageProperties
-                $recentMessages = Get-MgUserMessage @getMgUserMessageParams
-                Write-Host "Recente e-mails succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken."
-            }
-            else {
-                throw $_ # Gooi de fout opnieuw als het niet de verwachte 'size' fout is
-            }
-        }
+        Write-Host "Recente e-mails ophalen (incl. MAPI size)..."
+        $recentMessages = Get-MgUserMessage @getMgUserMessageParams
+        Write-Host "Recente e-mails succesvol opgehaald."
 
         if ($null -eq $recentMessages -or $recentMessages.Count -eq 0) {
             Write-Host "Geen recente e-mails gevonden."
@@ -1941,8 +1904,13 @@ function Show-RecentEmails {
             $messagesForView = @()
             foreach ($msg in $recentMessages) {
                 $currentMessageSize = $null
-                if ($sizePropertySuccessfullyUsed -and $msg.PSObject.Properties[$sizeProperty]) { # Controleer of de eigenschap bestaat
-                    $currentMessageSize = $msg.$sizeProperty
+                $mapiSizeProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
+                if ($mapiSizeProp -and $mapiSizeProp.Value) {
+                    try {
+                        $currentMessageSize = [long]$mapiSizeProp.Value
+                    } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Recente) ID $($msg.Id)." }
+                } elseif ($msg.PSObject.Properties['size'] -and $msg.size -ne $null) {
+                    $currentMessageSize = $msg.size
                 }
 
                 $messagesForView += [PSCustomObject]@{
@@ -1958,21 +1926,23 @@ function Show-RecentEmails {
 
             # Callback functie om data te herladen
             $refreshCallback = {
-                param($CurrentUserId, $CallbackContext) # $CallbackContext is nu een hashtable
-                $CurrentGetMgUserMessageParamsForRecent = $CallbackContext.Params
-                $CurrentSizePropertySuccessfullyUsed = $CallbackContext.SizeUsed
-                $sizePropertyForCallback = "size" # Zorg dat dit consistent is met de buitenste scope of definieer lokaal
+                param($CurrentUserId, $CallbackContext) # $CallbackContext is een hashtable met Params
+                $CurrentGetMgUserMessageParamsForRecent = $CallbackContext.Params # Bevat al ExpandProperty
+                $localMessageSizeMapiPropertyId = "Integer 0x0E08" # Definieer opnieuw voor callback scope
 
                 Write-Host "Recente e-mails herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
-                # De $CurrentGetMgUserMessageParamsForRecent bevat al de juiste Property selectie (met of zonder size)
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForRecent -ErrorAction SilentlyContinue
                 $reloadedMessagesForView = @()
                 if ($reloadedMessages) {
                     foreach ($rmsg in $reloadedMessages) {
                         $reloadedMessageSize = $null
-                        if ($CurrentSizePropertySuccessfullyUsed -and $rmsg.PSObject.Properties[$sizePropertyForCallback]) { # Gebruik lokale $sizePropertyForCallback
-                             $reloadedMessageSize = $rmsg.$sizePropertyForCallback
+                        $reloadedMapiSizeProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageSizeMapiPropertyId } | Select-Object -First 1
+                        if ($reloadedMapiSizeProp -and $reloadedMapiSizeProp.Value) {
+                            try { $reloadedMessageSize = [long]$reloadedMapiSizeProp.Value } catch {}
+                        } elseif ($rmsg.PSObject.Properties['size'] -and $rmsg.size -ne $null) {
+                            $reloadedMessageSize = $rmsg.size
                         }
+
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
                             ReceivedDateTime   = $rmsg.ReceivedDateTime
@@ -1986,11 +1956,9 @@ function Show-RecentEmails {
                 }
                 return $reloadedMessagesForView
             }
-            # Geef $sizePropertySuccessfullyUsed mee aan de context van de callback
-            # Deze $callbackContext structuur is al correct door de vorige (succesvolle) patch.
             $callbackContext = @{
-                Params = $getMgUserMessageParams # Dit bevat de correcte 'Property' (met of zonder size)
-                SizeUsed = $sizePropertySuccessfullyUsed
+                Params = $getMgUserMessageParams # Bevat Property en ExpandProperty
+                # SizeUsed is niet meer nodig
             }
 
             Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Laatste 100 e-mails" -AllowActions $true -DomainToUpdateCache "RECENT_EMAILS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
