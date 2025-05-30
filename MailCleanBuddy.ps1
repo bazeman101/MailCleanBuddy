@@ -877,10 +877,12 @@ function Show-StandardizedEmailListView {
                         $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
                     }
                     
-                    # If no items were processed from space selection (either no space items, or they didn't match/add),
+                    # Fallback: If the list is still empty (either no space selection, or space selection yielded no matches)
                     # AND a single item is highlighted, then use the highlighted item.
-                    if ($messagesToActOnList.Count -eq 0 -and $currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
-                        $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
+                    if ($messagesToActOnList.Count -eq 0) {
+                        if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
+                            $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
+                        }
                     }
 
                     if ($messagesToActOnList.Count > 0) {
@@ -902,10 +904,12 @@ function Show-StandardizedEmailListView {
                         $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
                     }
                     
-                    # If no items were processed from space selection (either no space items, or they didn't match/add),
+                    # Fallback: If the list is still empty (either no space selection, or space selection yielded no matches)
                     # AND a single item is highlighted, then use the highlighted item.
-                    if ($messagesToActOnList.Count -eq 0 -and $currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
-                        $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
+                    if ($messagesToActOnList.Count -eq 0) {
+                        if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
+                            $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
+                        }
                     }
 
                     if ($messagesToActOnList.Count > 0) {
