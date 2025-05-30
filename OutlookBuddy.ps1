@@ -1610,45 +1610,95 @@ function Perform-ActionOnAllSenderEmails {
 
 function Manage-EmailsBySender {
     param($UserId)
+
+    # CGA Kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White; $cgaWarningFgColor = [System.ConsoleColor]::Red
+
+    $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+    $Host.UI.RawUI.BackgroundColor = $cgaBgColor
     Clear-Host
-    Write-Host "Beheer e-mails van specifieke afzender voor $UserId"
+    Write-Host "Beheer e-mails van specifiek domein voor $UserId"
     Write-Host "----------------------------------------------------"
 
     if ($null -eq $Script:SenderCache -or $Script:SenderCache.Count -eq 0) {
         Write-Warning "De mailbox is nog niet geïndexeerd of de index is leeg."
-        Write-Warning "Kies optie '1. Indexeer mailbox' in het hoofdmenu om de index op te bouwen."
+        Write-Warning "Kies optie 'R. Ververs Index' in het hoofdmenu om de index op te bouwen."
         Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
         return
     }
 
-    $senderEmail = Read-Host "Voer het e-mailadres in van de afzender"
-    if (-not $Script:SenderCache.ContainsKey($senderEmail.ToLowerInvariant())) {
-        Write-Warning "Afzender '$senderEmail' niet gevonden in de cache. Controleer het e-mailadres of indexeer de mailbox opnieuw."
+    $domainNameInput = Read-Host "Voer het domein in van de afzender (bijv. example.com)"
+    if ([string]::IsNullOrWhiteSpace($domainNameInput)) {
+        Write-Warning "Geen domein ingevoerd. Actie geannuleerd."
         Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
         return
     }
 
-    $senderInfo = $Script:SenderCache[$senderEmail.ToLowerInvariant()]
-    Write-Host "Afzender geselecteerd: $($senderInfo.Name) <$senderEmail>"
-    Write-Host "Aantal e-mails in cache: $($senderInfo.Count)"
-    Write-Host ""
-    Write-Host "Kies een actie:"
-    Write-Host "1. Verwijder alle e-mails van deze afzender"
-    Write-Host "2. Verplaats alle e-mails van deze afzender naar een andere map"
-    Write-Host "3. Terug naar hoofdmenu"
+    $normalizedDomainKey = $domainNameInput.ToLowerInvariant()
 
-    $actionChoice = Read-Host "Kies een optie (1-3)"
+    if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
+        Write-Warning "Domein '$domainNameInput' niet gevonden in de cache. Controleer het domein of indexeer de mailbox opnieuw."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
 
-    switch ($actionChoice) {
-        "1" { Delete-MailsFromSender -UserId $UserId -SenderEmail $senderEmail }
-        "2" { Move-MailsFromSender -UserId $UserId -SenderEmail $senderEmail }
-        "3" { return } # Terug naar hoofdmenu
-        default {
-            Write-Warning "Ongeldige keuze."
+    $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
+    if ($null -eq $cachedDomainEntry -or $cachedDomainEntry.Messages.Count -eq 0) {
+        Write-Warning "Geen e-mails gevonden in de cache voor domein '$domainNameInput'."
+        Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+        return
+    }
+
+    $messagesFromCache = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
+
+    # Data voorbereiden voor Show-StandardizedEmailListView
+    $messagesForView = @()
+    foreach ($msgDetail in $messagesFromCache) {
+        $messagesForView += [PSCustomObject]@{
+            Id                 = $msgDetail.MessageId
+            ReceivedDateTime   = $msgDetail.ReceivedDateTime
+            Subject            = $msgDetail.Subject
+            SenderName         = $msgDetail.SenderName
+            SenderEmailAddress = $msgDetail.SenderEmailAddress
+            Size               = $msgDetail.Size
+            MessageForActions  = $msgDetail # Het cache (messageDetail) object
         }
     }
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+
+    # Callback functie om data te herladen (haalt opnieuw uit cache)
+    $refreshCallbackForCache = {
+        param($CurrentUserId, $CurrentNormalizedDomainKeyForCallback) # Context is de domain key
+        Write-Host "E-maillijst voor domein '$CurrentNormalizedDomainKeyForCallback' herladen uit cache..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+        $reloadedMessagesForView = @()
+        if ($Script:SenderCache.ContainsKey($CurrentNormalizedDomainKeyForCallback)) {
+            $reloadedCachedDomainEntry = $Script:SenderCache[$CurrentNormalizedDomainKeyForCallback]
+            $reloadedMessagesFromCache = $reloadedCachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
+            foreach ($rmsgDetail in $reloadedMessagesFromCache) {
+                $reloadedMessagesForView += [PSCustomObject]@{
+                    Id                 = $rmsgDetail.MessageId
+                    ReceivedDateTime   = $rmsgDetail.ReceivedDateTime
+                    Subject            = $rmsgDetail.Subject
+                    SenderName         = $rmsgDetail.SenderName
+                    SenderEmailAddress = $rmsgDetail.SenderEmailAddress
+                    Size               = $rmsgDetail.Size
+                    MessageForActions  = $rmsgDetail
+                }
+            }
+        }
+        return $reloadedMessagesForView
+    }
+
+    # Toon de e-maillijst met de generieke functie
+    Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "E-mails van domein: $($cachedDomainEntry.Name)" -AllowActions $true -DomainToUpdateCache $normalizedDomainKey -RefreshDataCallback $refreshCallbackForCache -RefreshDataCallbackContext $normalizedDomainKey
+
+    # Na Show-StandardizedEmailListView keert de gebruiker terug naar het hoofdmenu.
+    # De Read-Host hieronder is niet meer nodig, de hoofdmenu-lus handelt dit af.
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
+
+# Delete-MailsFromSender en Move-MailsFromSender worden hieronder verwijderd.
 
 function Delete-MailsFromSender {
     param(
