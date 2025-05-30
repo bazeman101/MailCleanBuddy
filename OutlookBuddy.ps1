@@ -858,11 +858,9 @@ function Show-StandardizedEmailListView {
                     $messageObjectToProcess = $selectedListViewItem.MessageForActions # Het Graph of Cache object
                     $knownGraphMessageId = $selectedListViewItem.Id # Dit is altijd de correcte Graph Message ID
 
-                    if ($messageObjectToProcess.PSObject.Properties['From'] -or $messageObjectToProcess.PSObject.Properties['Sender']) { # Graph Object
-                        Show-EmailActionsMenu -UserId $UserId -MessageId $knownGraphMessageId # Gebruik de bekende ID
-                    } else { # Cache Object (messageDetail)
-                        Show-EmailBody -UserId $UserId -MessageObject $messageObjectToProcess -KnownMessageId $knownGraphMessageId # Geef bekende ID mee
-                    }
+                    # Roep altijd Show-EmailActionsMenu aan. Deze functie haalt de laatste versie van de mail op.
+                    # Geef DomainToUpdateCache mee zodat Show-EmailActionsMenu de cache kan bijwerken.
+                    Show-EmailActionsMenu -UserId $UserId -MessageId $knownGraphMessageId -DomainToUpdateCache $DomainToUpdateCache
 
                     if ($RefreshDataCallback) {
                         $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
@@ -1993,7 +1991,8 @@ function Show-RecentEmails {
 function Show-EmailActionsMenu {
     param(
         [string]$UserId,
-        [string]$MessageId
+        [string]$MessageId,
+        [string]$DomainToUpdateCache = $null # Nieuwe parameter voor cache updates
     )
     Clear-Host
 
@@ -2067,7 +2066,9 @@ function Show-EmailActionsMenu {
                         try {
                             Remove-MgUserMessage -UserId $UserId -MessageId $MessageId -ErrorAction Stop
                             Write-Host "E-mail succesvol verwijderd."
-                            # De cache wordt bijgewerkt door de aanroepende Show-StandardizedEmailListView via de callback
+                            if ($DomainToUpdateCache) { # Controleer of er een cache is om te updaten
+                                Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageId
+                            }
                         } catch { Write-Error "Fout bij het verwijderen van de e-mail: $($_.Exception.Message)" }
                         $actionLoopActive = $false # Verlaat de lus en functie
                     } # Anders (geen bevestiging), blijft de lus actief en wordt het menu opnieuw getoond
@@ -2080,6 +2081,9 @@ function Show-EmailActionsMenu {
                             try {
                                 Move-MgUserMessage -UserId $UserId -MessageId $MessageId -DestinationId $destinationFolderId -ErrorAction Stop
                                 Write-Host "E-mail succesvol verplaatst naar '$($destinationFolder.DisplayName)'."
+                                if ($DomainToUpdateCache) { # Controleer of er een cache is om te updaten
+                                    Update-SenderCache -DomainToUpdate $DomainToUpdateCache -MessageIdToRemove $MessageId
+                                }
                             } catch { Write-Error "Fout bij het verplaatsen van de e-mail: $($_.Exception.Message)" }
                             $actionLoopActive = $false # Verlaat de lus en functie
                         }
