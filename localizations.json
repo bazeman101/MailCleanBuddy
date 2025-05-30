@@ -555,6 +555,12 @@
     "confirmation_title": "Bestätigung",
     "standardizedList_noEmailsToDisplay": "Keine E-Mails zum Anzeigen gefunden.",
     "standardizedList_pressEscToReturn": "Drücken Sie Escape, um zurückzukehren.",
+    "confirmation_promptDeleteSingleEmail": "Möchten Sie diese E-Mail wirklich dauerhaft löschen?",
+    "confirmation_promptMoveSingleEmail": "Möchten Sie diese E-Mail wirklich nach '{0}' verschieben?",
+    "confirmation_promptDeleteMultipleEmails": "Möchten Sie diese {0} E-Mail(s) wirklich dauerhaft löschen?",
+    "confirmation_promptMoveMultipleEmails": "Möchten Sie diese {0} E-Mail(s) wirklich nach '{1}' verschieben?",
+    "confirmation_promptDeleteAllDomainEmails": "WARNUNG: Möchten Sie wirklich ALLE {0} E-Mails von Domain '{1}' dauerhaft löschen?",
+    "confirmation_promptMoveAllDomainEmails": "WARNUNG: Möchten Sie wirklich ALLE {0} E-Mails von Domain '{1}' nach '{2}' verschieben?",
     "performActionMultiple_noMessagesToProcess": "Keine Nachrichten zur Verarbeitung angegeben.",
     "performActionMultiple_menuItemDelete": "1. {0} ausgewählte E-Mail(s) löschen",
     "performActionMultiple_menuItemMove": "2. {0} ausgewählte E-Mail(s) verschieben",
@@ -574,6 +580,7 @@
     "performActionSingle_menuItemMove": "2. Diese E-Mail verschieben",
     "performActionSingle_menuItemBack": "3. Zurück (Esc)",
     "performActionSingle_menuTitle": "Aktion wählen:",
+    "mainMenu_instruction": "Verwenden Sie ↑/↓ zur Auswahl, Enter zum Bestätigen, Esc zum Beenden.",
     "mainMenu_option2": "2. E-Mails von spezifischem Absender verwalten",
     "mainMenu_option3": "3. E-Mail suchen (live)",
     "mainMenu_option4": "4. Letzte 100 E-Mails anzeigen (live)",
@@ -585,8 +592,12 @@
     "searchMail_promptSearchTerm": "Suchbegriff eingeben (Groß-/Kleinschreibung egal, * für Wildcards. Sucht in Betreff, Text, Absender)",
     "showRecent_title": "Die letzten 100 E-Mails für {0} abrufen...",
     "showEmailActions_detailsTitle": "Details für E-Mail:",
+    "showEmailActions_menuInstruction": "Aktionen: [Entf] Löschen | [V] Verschieben | [B] Textkörper anzeigen | [D] Anhänge herunterladen | [Esc/Q] Zurück",
+    "getMailFolder_instruction": "Verwenden Sie ↑/↓, Enter zur Auswahl, Esc/Q zum Abbrechen.",
     "downloadAttachments_title": "Anhänge für E-Mail ID: {0}",
-    "emptyDeletedItems_title": "Ordner 'Gelöschte Elemente' für {0} leeren"
+    "downloadAttachments_menuInstruction": "[Enter] Ausgewählte herunterladen | [A] ALLE herunterladen | [Esc/Q] Abbrechen",
+    "emptyDeletedItems_title": "Ordner 'Gelöschte Elemente' für {0} leeren",
+    "emptyDeletedItems_confirmPrompt": "WARNUNG: Möchten Sie wirklich ALLE Elemente im Ordner 'Gelöschte Elemente' dauerhaft löschen? Diese Aktion kann nicht rückgängig gemacht werden. (ja/nein)"
   },
   "fr": {
     "mainMenu_title": "MailCleanBuddy - Menu principal pour {0}",
@@ -608,6 +619,12 @@
     "confirmation_title": "Confirmation",
     "standardizedList_noEmailsToDisplay": "Aucun e-mail à afficher.",
     "standardizedList_pressEscToReturn": "Appuyez sur Échap pour revenir.",
+    "confirmation_promptDeleteSingleEmail": "Voulez-vous vraiment supprimer définitivement cet e-mail ?",
+    "confirmation_promptMoveSingleEmail": "Voulez-vous vraiment déplacer cet e-mail vers '{0}' ?",
+    "confirmation_promptDeleteMultipleEmails": "Voulez-vous vraiment supprimer définitivement ces {0} e-mail(s) ?",
+    "confirmation_promptMoveMultipleEmails": "Voulez-vous vraiment déplacer ces {0} e-mail(s) vers '{1}' ?",
+    "confirmation_promptDeleteAllDomainEmails": "AVERTISSEMENT : Voulez-vous vraiment supprimer DÉFINITIVEMENT TOUS les {0} e-mails du domaine '{1}' ?",
+    "confirmation_promptMoveAllDomainEmails": "AVERTISSEMENT : Voulez-vous vraiment déplacer TOUS les {0} e-mails du domaine '{1}' vers '{2}' ?",
     "performActionMultiple_noMessagesToProcess": "Aucun message spécifié pour le traitement.",
     "performActionMultiple_menuItemDelete": "1. Supprimer {0} e-mail(s) sélectionné(s)",
     "performActionMultiple_menuItemMove": "2. Déplacer {0} e-mail(s) sélectionné(s)",
@@ -627,6 +644,7 @@
     "performActionSingle_menuItemMove": "2. Déplacer cet e-mail",
     "performActionSingle_menuItemBack": "3. Retour (Échap)",
     "performActionSingle_menuTitle": "Choisissez une action :",
+    "mainMenu_instruction": "Utilisez ↑/↓ pour sélectionner, Entrée pour choisir, Échap pour quitter.",
     "mainMenu_option2": "2. Gérer les e-mails d'un expéditeur spécifique",
     "mainMenu_option3": "3. Rechercher un e-mail (en direct)",
     "mainMenu_option4": "4. Voir les 100 derniers e-mails (en direct)",
@@ -638,7 +656,11 @@
     "searchMail_promptSearchTerm": "Entrez le terme de recherche (insensible à la casse, utilisez * pour les jokers. Recherche dans l'objet, le corps, l'expéditeur)",
     "showRecent_title": "Récupération des 100 derniers e-mails pour {0}...",
     "showEmailActions_detailsTitle": "Détails de l'e-mail :",
+    "showEmailActions_menuInstruction": "Actions : [Suppr] Supprimer | [V] Déplacer | [B] Voir le corps | [D] Télécharger les pièces jointes | [Échap/Q] Retour",
+    "getMailFolder_instruction": "Utilisez ↑/↓, Entrée pour sélectionner, Échap/Q pour annuler.",
     "downloadAttachments_title": "Pièces jointes pour l'e-mail ID : {0}",
-    "emptyDeletedItems_title": "Vider le dossier 'Éléments supprimés' pour {0}"
+    "downloadAttachments_menuInstruction": "[Entrée] Télécharger la sélection | [A] Télécharger TOUT | [Échap/Q] Annuler",
+    "emptyDeletedItems_title": "Vider le dossier 'Éléments supprimés' pour {0}",
+    "emptyDeletedItems_confirmPrompt": "AVERTISSEMENT : Voulez-vous vraiment supprimer DÉFINITIVEMENT tous les éléments du dossier 'Éléments supprimés' ? Cette action est irréversible. (oui/non)"
   }
 }
