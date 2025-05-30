@@ -170,7 +170,7 @@ function Index-Mailbox {
     $Script:SenderCache = @{} # Reset of initialiseer de cache
 
     try {
-        $baseMessageProperties = "id,subject,sender,receivedDateTime,toRecipients,categories,size,hasAttachments" # Standaard 'size' & 'hasAttachments' blijven als fallback
+        $baseMessageProperties = "id,subject,sender,receivedDateTime,toRecipients,categories" # Verwijder 'size' en 'hasAttachments'
         $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
         $messageHasAttachMapiPropertyId = "Boolean 0x0E1B" # PR_HASATTACH
         $expandExtendedProperties = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId' or id eq '$messageHasAttachMapiPropertyId')"
@@ -239,18 +239,14 @@ function Index-Mailbox {
                 $mapiSizeProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
                     try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size '$($mapiSizeProp.Value)' niet converteren (Index) ID $($message.Id)." }
-                } elseif ($message.PSObject.Properties['size'] -and $message.size -ne $null) {
-                    $currentMessageSize = $message.size
-                }
+                } # Fallback naar $message.size is niet meer nodig/mogelijk
 
                 # Bepaal of er bijlagen zijn
                 $currentHasAttachments = $false # Default
                 $mapiAttachProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
                 if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
                     try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Index) ID $($message.Id)." }
-                } elseif ($message.PSObject.Properties['hasAttachments'] -and $message.hasAttachments -ne $null) {
-                    $currentHasAttachments = $message.hasAttachments
-                }
+                } # Fallback naar $message.hasAttachments is niet meer nodig/mogelijk
 
                 # Creëer een object met de details van het huidige bericht
                 $messageDetail = @{
@@ -1769,7 +1765,7 @@ function Search-Mail {
         Write-Host "Zoeken naar e-mails met term: '$searchTerm'..."
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
-        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' & 'hasAttachments' als fallback
+        $baseMessageProperties = "id,subject,from,receivedDateTime,bodyPreview" # Verwijder 'hasAttachments' en 'size'
         $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
         $messageHasAttachMapiPropertyId = "Boolean 0x0E1B" # PR_HASATTACH
         $expandExtendedProperties = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId' or id eq '$messageHasAttachMapiPropertyId')"
@@ -1805,17 +1801,13 @@ function Search-Mail {
                 $mapiSizeProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
                     try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Zoeken) ID $($msg.Id)." }
-                } elseif ($msg.PSObject.Properties['size'] -and $msg.size -ne $null) {
-                    $currentMessageSize = $msg.size
-                }
+                } # Fallback niet meer nodig
 
                 $currentHasAttachments = $false
                 $mapiAttachProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
                 if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
                     try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Zoeken) ID $($msg.Id)." }
-                } elseif ($msg.PSObject.Properties['hasAttachments'] -and $msg.hasAttachments -ne $null) {
-                    $currentHasAttachments = $msg.hasAttachments
-                }
+                } # Fallback niet meer nodig
 
                 $messagesForView += [PSCustomObject]@{
                     Id                 = $msg.Id
@@ -1845,17 +1837,13 @@ function Search-Mail {
                         $reloadedMapiSizeProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageSizeMapiPropertyId } | Select-Object -First 1
                         if ($reloadedMapiSizeProp -and $reloadedMapiSizeProp.Value) {
                             try { $reloadedMessageSize = [long]$reloadedMapiSizeProp.Value } catch {}
-                        } elseif ($rmsg.PSObject.Properties['size'] -and $rmsg.size -ne $null) {
-                            $reloadedMessageSize = $rmsg.size
-                        }
+                        } # Fallback niet meer nodig
 
                         $reloadedHasAttachments = $false
                         $reloadedMapiAttachProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageHasAttachMapiPropertyId } | Select-Object -First 1
                         if ($reloadedMapiAttachProp -and $reloadedMapiAttachProp.Value -ne $null) {
                             try { $reloadedHasAttachments = [System.Convert]::ToBoolean($reloadedMapiAttachProp.Value) } catch {}
-                        } elseif ($rmsg.PSObject.Properties['hasAttachments'] -and $rmsg.hasAttachments -ne $null) {
-                            $reloadedHasAttachments = $rmsg.hasAttachments
-                        }
+                        } # Fallback niet meer nodig
 
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
@@ -1900,7 +1888,7 @@ function Show-RecentEmails {
     Write-Host "Ophalen van de laatste 100 e-mails voor $UserId..."
 
     try {
-        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' & 'hasAttachments' als fallback
+        $baseMessageProperties = "id,subject,from,receivedDateTime,bodyPreview" # Verwijder 'hasAttachments' en 'size'
         $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
         $messageHasAttachMapiPropertyId = "Boolean 0x0E1B" # PR_HASATTACH
         $expandExtendedProperties = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId' or id eq '$messageHasAttachMapiPropertyId')"
@@ -1928,17 +1916,13 @@ function Show-RecentEmails {
                 $mapiSizeProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
                     try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Recente) ID $($msg.Id)." }
-                } elseif ($msg.PSObject.Properties['size'] -and $msg.size -ne $null) {
-                    $currentMessageSize = $msg.size
-                }
+                } # Fallback niet meer nodig
 
                 $currentHasAttachments = $false
                 $mapiAttachProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
                 if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
                     try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Recente) ID $($msg.Id)." }
-                } elseif ($msg.PSObject.Properties['hasAttachments'] -and $msg.hasAttachments -ne $null) {
-                    $currentHasAttachments = $msg.hasAttachments
-                }
+                } # Fallback niet meer nodig
 
                 $messagesForView += [PSCustomObject]@{
                     Id                 = $msg.Id
@@ -1968,17 +1952,13 @@ function Show-RecentEmails {
                         $reloadedMapiSizeProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageSizeMapiPropertyId } | Select-Object -First 1
                         if ($reloadedMapiSizeProp -and $reloadedMapiSizeProp.Value) {
                             try { $reloadedMessageSize = [long]$reloadedMapiSizeProp.Value } catch {}
-                        } elseif ($rmsg.PSObject.Properties['size'] -and $rmsg.size -ne $null) {
-                            $reloadedMessageSize = $rmsg.size
-                        }
+                        } # Fallback niet meer nodig
 
                         $reloadedHasAttachments = $false
                         $reloadedMapiAttachProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageHasAttachMapiPropertyId } | Select-Object -First 1
                         if ($reloadedMapiAttachProp -and $reloadedMapiAttachProp.Value -ne $null) {
                             try { $reloadedHasAttachments = [System.Convert]::ToBoolean($reloadedMapiAttachProp.Value) } catch {}
-                        } elseif ($rmsg.PSObject.Properties['hasAttachments'] -and $rmsg.hasAttachments -ne $null) {
-                            $reloadedHasAttachments = $rmsg.hasAttachments
-                        }
+                        } # Fallback niet meer nodig
 
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
