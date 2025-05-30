@@ -19,15 +19,94 @@
 #>
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $true, HelpMessage = (Get-LocStr "param_mailboxEmail_help"))]
     [string]$MailboxEmail,
 
     [Parameter(Mandatory = $false)]
     [switch]$TestRun,
 
     [Parameter(Mandatory = $false)]
-    [int]$MaxEmailsToIndex = 0 # Nieuwe parameter om het max aantal te indexeren mails te specificeren
+    [int]$MaxEmailsToIndex = 0, # Nieuwe parameter om het max aantal te indexeren mails te specificeren
+
+    [Parameter(Mandatory = $false, HelpMessage = (Get-LocStr "param_language_help"))]
+    [string]$Language = "nl"
 )
+
+# Script-level localization strings
+$Script:LocalizedStrings = $null
+$Script:SelectedLanguage = $Language
+
+# Functie om lokalisatiestrings te laden
+function Load-LocalizationStrings {
+    param (
+        [string]$SelectedLang
+    )
+    $localizationFilePath = Join-Path -Path $PSScriptRoot -ChildPath "localizations.json"
+    if (-not (Test-Path $localizationFilePath)) {
+        Write-Warning "Localization file not found at: $localizationFilePath. Using fallback internal strings (limited)."
+        # Fallback naar een minimale set ingebouwde strings als JSON niet gevonden wordt
+        $Script:LocalizedStrings = @{
+            "nl" = @{ "mainMenu_title" = "MailCleanBuddy - Hoofdmenu voor {0}"; "mainMenu_optionQ" = "Q. Afsluiten" }
+            "en" = @{ "mainMenu_title" = "MailCleanBuddy - Main Menu for {0}"; "mainMenu_optionQ" = "Q. Quit" }
+        }
+        if ($Script:LocalizedStrings.ContainsKey($SelectedLang)) {
+            $Script:LocalizedStrings = $Script:LocalizedStrings[$SelectedLang]
+        } else {
+            $Script:LocalizedStrings = $Script:LocalizedStrings["nl"] # Fallback naar NL
+        }
+        return
+    }
+
+    try {
+        $jsonContent = Get-Content -Path $localizationFilePath -Raw -ErrorAction Stop
+        $allLocalizations = ConvertFrom-Json -InputObject $jsonContent -ErrorAction Stop
+
+        if ($allLocalizations.ContainsKey($SelectedLang)) {
+            $Script:LocalizedStrings = $allLocalizations[$SelectedLang]
+            $Script:SelectedLanguage = $SelectedLang # Bevestig de geselecteerde taal
+        } elseif ($allLocalizations.ContainsKey("nl")) {
+            Write-Warning "Language '$SelectedLang' not found in localization file. Falling back to Dutch (nl)."
+            $Script:LocalizedStrings = $allLocalizations["nl"]
+            $Script:SelectedLanguage = "nl"
+        } else {
+            Write-Error "Default language 'nl' not found in localization file. Cannot load UI strings."
+            # Script kan hier niet verder zonder UI strings, of moet een hardcoded fallback hebben.
+            # Voor nu, stop het script of gebruik een zeer minimale set.
+            throw "Critical localization error."
+        }
+    } catch {
+        Write-Error "Error loading or parsing localization file '$localizationFilePath': $($_.Exception.Message)"
+        throw "Critical localization error."
+    }
+}
+
+# Helper functie om gelokaliseerde string op te halen
+function Get-LocStr {
+    param (
+        [string]$Key,
+        [object[]]$FormatArgs = @()
+    )
+    if ($Script:LocalizedStrings -and $Script:LocalizedStrings.ContainsKey($Key)) {
+        $localizedString = $Script:LocalizedStrings[$Key]
+        if ($FormatArgs.Count -gt 0) {
+            try {
+                return ($localizedString -f $FormatArgs)
+            } catch {
+                Write-Warning "Error formatting localized string for key '$Key' with args '$($FormatArgs -join ', ')'. Raw string returned. Error: $($_.Exception.Message)"
+                return $localizedString # Geef onbewerkte string terug bij formatteerfout
+            }
+        } else {
+            return $localizedString
+        }
+    } else {
+        Write-Warning "Localization key '$Key' not found for language '$($Script:SelectedLanguage)'. Returning key itself."
+        return $Key # Geef de key terug als de string niet gevonden is
+    }
+}
+
+# Laad de lokalisatiestrings aan het begin van het script
+Load-LocalizationStrings -SelectedLang $Script:SelectedLanguage
+
 
 # Set console window size
 $desiredHeight = 55 # Minimaal 50 regels + wat marge
@@ -35,7 +114,7 @@ $desiredWidth = 150 # Voldoende breedte
 try {
     # Controleer of de UI interactief is voordat we de venstergrootte proberen aan te passen
     if ($Host.UI.GetType().Name -notmatch "ConsoleHostUserInterface") {
-        Write-Verbose "Niet-interactieve host gedetecteerd, console grootte wordt niet aangepast."
+        Write-Verbose (Get-LocStr "msg_consoleSizeNotInteractive")
     } else {
         $currentWindowSize = $Host.UI.RawUI.WindowSize
         $bufferSize = $Host.UI.RawUI.BufferSize
@@ -62,10 +141,10 @@ try {
         if ($Host.UI.RawUI.BufferSize.Width -lt $finalBufferWidth -or $Host.UI.RawUI.BufferSize.Height -lt $finalBufferHeight) {
             $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size ($finalBufferWidth, $finalBufferHeight)
         }
-        Write-Verbose "Console size set to Width: $newWidth, Height: $newHeight"
+        Write-Verbose (Get-LocStr "msg_consoleSizeSet" -FormatArgs $newWidth, $newHeight)
     }
 } catch {
-    Write-Warning "Could not set console window size: $($_.Exception.Message)"
+    Write-Warning (Get-LocStr "msg_consoleSizeError" -FormatArgs $_.Exception.Message)
 }
 
 <#
@@ -87,25 +166,25 @@ function Get-CacheFilePath {
     $safeEmail = $MailboxEmail -replace "[^a-zA-Z0-9.-_]", "_"
     $cacheFileName = "mailcleanbuddy_cache_$($safeEmail).json"
     $Script:CacheFilePath = Join-Path -Path $PSScriptRoot -ChildPath $cacheFileName
-    Write-Verbose "Cache file path set to: $($Script:CacheFilePath)"
+    Write-Verbose (Get-LocStr "msg_cacheFilePathSet" -FormatArgs $Script:CacheFilePath)
 }
 
 # Functie om de lokale cache te laden
 function Load-LocalCache {
     if (-not $Script:CacheFilePath) {
-        Write-Warning "Cache file path is not set. Cannot load cache."
+        Write-Warning (Get-LocStr "msg_cacheFilePathNotSetLoad")
         return $false
     }
     if (Test-Path $Script:CacheFilePath) {
         try {
-            Write-Host "Lokale cache gevonden. Bezig met laden: $($Script:CacheFilePath)"
-            Write-Progress -Activity "Cache Laden" -Status "Bezig met laden van lokale cache..." -PercentComplete 30
+            Write-Host (Get-LocStr "msg_cacheFileLoading" -FormatArgs $Script:CacheFilePath)
+            Write-Progress -Activity (Get-LocStr "msg_cacheFileLoadingProgress1") -Status (Get-LocStr "msg_cacheFileLoadingProgress2") -PercentComplete 30
 
             $jsonContent = Get-Content -Path $Script:CacheFilePath -Raw -ErrorAction Stop
-            Write-Progress -Activity "Cache Laden" -Status "Cachebestand gelezen, converteren..." -PercentComplete 60
+            Write-Progress -Activity (Get-LocStr "msg_cacheFileLoadingProgress1") -Status (Get-LocStr "msg_cacheFileLoadingProgress3") -PercentComplete 60
             $loadedCache = ConvertFrom-Json -InputObject $jsonContent -ErrorAction Stop
 
-            Write-Progress -Activity "Cache Laden" -Status "Cache geconverteerd, berichten verwerken..." -PercentComplete 80
+            Write-Progress -Activity (Get-LocStr "msg_cacheFileLoadingProgress1") -Status (Get-LocStr "msg_cacheFileLoadingProgress4") -PercentComplete 80
             # Converteer Messages array terug naar List<PSObject> voor elke entry
             $tempCache = @{}
             foreach ($key in $loadedCache.PSObject.Properties.Name) {
@@ -120,17 +199,17 @@ function Load-LocalCache {
                 $tempCache[$key] = $entry
             }
             $Script:SenderCache = $tempCache
-            Write-Host "Lokale cache succesvol geladen."
-            Write-Progress -Activity "Cache Laden" -Status "Cache succesvol geladen." -Completed
+            Write-Host (Get-LocStr "msg_cacheFileLoaded")
+            Write-Progress -Activity (Get-LocStr "msg_cacheFileLoadingProgress1") -Status (Get-LocStr "msg_cacheFileLoaded") -Completed
             return $true
         } catch {
-            Write-Warning "Fout bij het laden of parsen van de lokale cache: $($_.Exception.Message). De cache wordt genegeerd en een volledige indexering zal worden uitgevoerd."
+            Write-Warning (Get-LocStr "msg_cacheFileLoadError" -FormatArgs $_.Exception.Message)
             $Script:SenderCache = $null # Zorg ervoor dat de cache leeg is bij een fout
-            Write-Progress -Activity "Cache Laden" -Status "Fout bij laden van cache." -Completed
+            Write-Progress -Activity (Get-LocStr "msg_cacheFileLoadingProgress1") -Status (Get-LocStr "msg_cacheFileLoadErrorProgress") -Completed
             return $false
         }
     } else {
-        Write-Host "Geen lokale cache gevonden op: $($Script:CacheFilePath)"
+        Write-Host (Get-LocStr "msg_cacheFileNotFound" -FormatArgs $Script:CacheFilePath)
         return $false
     }
 }
@@ -138,21 +217,21 @@ function Load-LocalCache {
 # Functie om de lokale cache op te slaan
 function Save-LocalCache {
     if (-not $Script:CacheFilePath) {
-        Write-Warning "Cache file path is not set. Cannot save cache."
+        Write-Warning (Get-LocStr "msg_cacheFilePathNotSetSave")
         return
     }
     if ($null -eq $Script:SenderCache) {
-        Write-Warning "SenderCache is leeg. Cache wordt niet opgeslagen."
+        Write-Warning (Get-LocStr "msg_cacheEmptySave")
         return
     }
     try {
-        Write-Host "Lokale cache opslaan naar: $($Script:CacheFilePath)"
+        Write-Host (Get-LocStr "msg_cacheSaving" -FormatArgs $Script:CacheFilePath)
         # Gebruik een voldoende hoge diepte voor ConvertTo-Json
         $jsonContent = $Script:SenderCache | ConvertTo-Json -Depth 10 -ErrorAction Stop
         Set-Content -Path $Script:CacheFilePath -Value $jsonContent -ErrorAction Stop
-        Write-Host "Lokale cache succesvol opgeslagen."
+        Write-Host (Get-LocStr "msg_cacheSaved")
     } catch {
-        Write-Warning "Fout bij het opslaan van de lokale cache: $($_.Exception.Message)"
+        Write-Warning (Get-LocStr "msg_cacheSaveError" -FormatArgs $_.Exception.Message)
     }
 }
 
@@ -2397,13 +2476,13 @@ function Show-MainMenu {
 
     # Menu-items en bijbehorende actiecodes
     $menuItems = @(
-        "1. Overzicht van verzenders (uit cache)",
-        "2. Beheer mails van specifieke afzender",    # Werkt op cache
-        "3. Zoek naar een mail (live)",              # Zoekt live, niet uit cache
-        "4. Bekijk laatste 100 e-mails (live)",     # Nieuwe optie
-        "5. Leeg 'Verwijderde Items' (live)",
-        "R. Ververs Index vanaf Server (Forceer Refresh)",
-        "Q. Afsluiten"
+        (Get-LocStr "mainMenu_option1"),
+        (Get-LocStr "mainMenu_option2"),
+        (Get-LocStr "mainMenu_option3"),
+        (Get-LocStr "mainMenu_option4"),
+        (Get-LocStr "mainMenu_option5"),
+        (Get-LocStr "mainMenu_optionR"),
+        (Get-LocStr "mainMenu_optionQ")
     )
     $actionCodes = "1", "2", "3", "4", "5", "R", "Q"
 
@@ -2417,9 +2496,9 @@ function Show-MainMenu {
         Clear-Host
 
         # Menu content
-        $title = "MailCleanBuddy - Hoofdmenu voor $UserEmail"
-        $separator = "------------------------------------------"
-        $instructionText = "Gebruik ↑/↓ om te selecteren, Enter om te kiezen, Esc om af te sluiten."
+        $title = (Get-LocStr "mainMenu_title" -FormatArgs $UserEmail)
+        $separator = (Get-LocStr "mainMenu_separator") # Kan ook hardcoded blijven als het puur visueel is
+        $instructionText = (Get-LocStr "mainMenu_instruction")
 
         # Bouw de volledige menu-inhoud voor breedteberekening
         $tempMenuContentForWidth = @($title) + @($separator) + $menuItems + @($separator) + @($instructionText)
@@ -2506,21 +2585,21 @@ function Show-MainMenu {
                 "4" { Show-RecentEmails -UserId $UserEmail } # Nieuwe actie
                 "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
                 "R" {
-                    Write-Host "Volledige indexering vanaf server wordt gestart..."
+                    Write-Host (Get-LocStr "mainMenu_actionStartingFullIndex")
                     Index-Mailbox -UserId $UserEmail # Deze functie slaat de cache zelf op
-                    Write-Host "Indexering voltooid. Druk op een toets om het menu opnieuw te laden."
+                    Write-Host (Get-LocStr "mainMenu_actionIndexingCompleteReload")
                     $readKeyOptionsRefresh = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
                     $Host.UI.RawUI.ReadKey($readKeyOptionsRefresh) | Out-Null # Wacht op toetsaanslag
                 }
                 "Q" {
-                    Write-Host "Afsluiten..."
+                    Write-Host (Get-LocStr "mainMenu_actionQuitting")
                     $menuLoopActive = $false # Stop de menulus
                     # Kleuren worden hersteld door de finally block van het script of net hieronder
                 }
                 default {
                     # Dit zou niet moeten gebeuren als $choiceToProcess correct is ingesteld
-                    Write-Warning "Onbekende actie: $choiceToProcess"
-                    Read-Host "Druk op Enter om door te gaan"
+                    Write-Warning (Get-LocStr "mainMenu_actionUnknown" -FormatArgs $choiceToProcess)
+                    Read-Host (Get-LocStr "mainMenu_actionPressEnterToContinue")
                 }
             }
 
@@ -2547,33 +2626,33 @@ try {
     # Check, install if necessary, and import Microsoft.Graph.Authentication module
     try {
         if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
-            Write-Host "Microsoft.Graph.Authentication module not found. Attempting to install..."
+            Write-Host (Get-LocStr "module_notFoundInstall" -FormatArgs "Microsoft.Graph.Authentication")
             Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force -Confirm:$false -ErrorAction Stop
-            Write-Host "Microsoft.Graph.Authentication module installed."
+            Write-Host (Get-LocStr "module_installed" -FormatArgs "Microsoft.Graph.Authentication")
         }
         Import-Module Microsoft.Graph.Authentication -Force -ErrorAction Stop # Added -Force
-        Write-Host "Microsoft.Graph.Authentication module loaded successfully."
+        Write-Host (Get-LocStr "module_loaded" -FormatArgs "Microsoft.Graph.Authentication")
     }
     catch {
-        throw "Kritiek: Kon de Microsoft.Graph.Authentication module niet installeren of importeren. Installeer deze handmatig met 'Install-Module Microsoft.Graph.Authentication -Scope CurrentUser' en probeer het script opnieuw. Foutdetails: $($_.Exception.Message)"
+        throw (Get-LocStr "module_criticalError" -FormatArgs "Microsoft.Graph.Authentication", $_.Exception.Message)
     }
 
     # Check, install if necessary, and import Microsoft.Graph.Mail module
     try {
         if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Mail)) {
-            Write-Host "Microsoft.Graph.Mail module not found. Attempting to install..."
+            Write-Host (Get-LocStr "module_notFoundInstall" -FormatArgs "Microsoft.Graph.Mail")
             Install-Module Microsoft.Graph.Mail -Scope CurrentUser -Force -Confirm:$false -ErrorAction Stop
-            Write-Host "Microsoft.Graph.Mail module installed."
+            Write-Host (Get-LocStr "module_installed" -FormatArgs "Microsoft.Graph.Mail")
         }
         Import-Module Microsoft.Graph.Mail -Force -ErrorAction Stop # Added -Force
-        Write-Host "Microsoft.Graph.Mail module loaded successfully."
+        Write-Host (Get-LocStr "module_loaded" -FormatArgs "Microsoft.Graph.Mail")
     }
     catch {
-        throw "Kritiek: Kon de Microsoft.Graph.Mail module niet installeren of importeren. Installeer deze handmatig met 'Install-Module Microsoft.Graph.Mail -Scope CurrentUser' en probeer het script opnieuw. Foutdetails: $($_.Exception.Message)"
+        throw (Get-LocStr "module_criticalError" -FormatArgs "Microsoft.Graph.Mail", $_.Exception.Message)
     }
 
     # Connect to Microsoft Graph
-    Write-Host "Attempting to connect to Microsoft Graph for mailbox: $MailboxEmail"
+    Write-Host (Get-LocStr "graph_connecting" -FormatArgs $MailboxEmail)
     try {
         # Check current connection and scopes
         $currentConnection = Get-MgContext -ErrorAction SilentlyContinue
@@ -2593,37 +2672,37 @@ try {
 
         if (-not $currentConnection -or -not $hasRequiredScopes) {
             if ($currentConnection -and -not $hasRequiredScopes) {
-                Write-Warning "Current Graph connection does not have all required scopes. Reconnecting."
+                Write-Warning (Get-LocStr "graph_reconnectingNoScopes")
                 Disconnect-MgGraph -ErrorAction SilentlyContinue
             }
-            Write-Host "Connecting to Microsoft Graph with scopes: $($RequiredScopes -join ', ')"
+            Write-Host (Get-LocStr "graph_connectingWithScopes" -FormatArgs ($RequiredScopes -join ', '))
             Connect-MgGraph -Scopes $RequiredScopes -ErrorAction Stop
         } else {
-            Write-Host "Already connected to Microsoft Graph with required scopes."
+            Write-Host (Get-LocStr "graph_alreadyConnected")
         }
-        Write-Host "Successfully connected to Microsoft Graph."
+        Write-Host (Get-LocStr "graph_connectedSuccessfully")
 
         # Verify that Graph cmdlets are available (optional, Connect-MgGraph success usually implies this)
         if (-not (Get-Command Get-MgUserMessage -ErrorAction SilentlyContinue)) {
-            throw "Kritiek: Get-MgUserMessage cmdlet is niet beschikbaar na een succesvolle verbinding met Microsoft Graph. Controleer de Microsoft.Graph.Mail module."
+            throw (Get-LocStr "graph_cmdletNotAvailableError" -FormatArgs "Get-MgUserMessage")
         }
-        Write-Host "Verbinding succesvol."
+        Write-Host (Get-LocStr "graph_connectionSuccessful")
 
         # Initialiseer en laad/bouw de cache
         Get-CacheFilePath -MailboxEmail $MailboxEmail
         if (Load-LocalCache) {
-            Write-Host "Lokale cache geladen. Volledige indexering wordt overgeslagen voor snellere start."
-            Write-Host "Gebruik menu-optie 'R' om de index handmatig vanaf de server te verversen."
+            Write-Host (Get-LocStr "cache_loadedSkipIndex")
+            Write-Host (Get-LocStr "cache_useMenuRToRefresh")
             # $Script:SenderCache is nu gevuld vanuit het bestand
         } else {
-            Write-Host "Geen (valide) lokale cache gevonden. Starten met automatische indexering van de mailbox..."
+            Write-Host (Get-LocStr "cache_noValidCacheStartIndexing")
             Index-Mailbox -UserId $MailboxEmail # Indexeert en slaat de cache op
-            Write-Host "Automatische indexering voltooid (of poging daartoe)."
+            Write-Host (Get-LocStr "cache_autoIndexingComplete")
         }
         # Start-Sleep -Seconds 1 # Korte pauze
     }
     catch {
-        throw "Kritiek: Fout tijdens het verbinden met Microsoft Graph of initialisatie van de cache: $($_.Exception.Message). Controleer de internetverbinding, de Microsoft Graph module installaties en de benodigde rechten/consent."
+        throw (Get-LocStr "graph_initCacheError" -FormatArgs $_.Exception.Message)
     }
 
     # Main application loop
@@ -2634,20 +2713,20 @@ try {
 
 }
 catch {
-    Write-Error "Er is een fout opgetreden: $($_.Exception.Message)"
+    Write-Error (Get-LocStr "script_errorOccurred" -FormatArgs $_.Exception.Message)
     if ($_.ScriptStackTrace) {
-        Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        Write-Error ((Get-LocStr "msg_indexingStackTrace") + " " + $_.ScriptStackTrace) # Combineer met bestaande key
     }
     if ($_.Exception.InnerException) {
-        Write-Error "Inner Exception: $($_.Exception.InnerException.Message)"
+        Write-Error ((Get-LocStr "msg_indexingInnerException") + " " + $_.Exception.InnerException.Message) # Combineer
     }
 }
 finally {
     # Disconnect from Microsoft Graph
     if (Get-MgContext -ErrorAction SilentlyContinue) {
-        Write-Host "Disconnecting from Microsoft Graph..."
+        Write-Host (Get-LocStr "script_disconnectingGraph")
         Disconnect-MgGraph
     } else {
-        Write-Host "Not connected to Microsoft Graph, or context is unavailable. No disconnection needed."
+        Write-Host (Get-LocStr "script_notConnectedGraphNoDisconnect")
     }
 }
