@@ -28,6 +28,46 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$MaxEmailsToIndex = 0 # Nieuwe parameter om het max aantal te indexeren mails te specificeren
 )
+
+# Set console window size
+$desiredHeight = 55 # Minimaal 50 regels + wat marge
+$desiredWidth = 150 # Voldoende breedte
+try {
+    # Controleer of de UI interactief is voordat we de venstergrootte proberen aan te passen
+    if ($Host.UI.GetType().Name -notmatch "ConsoleHostUserInterface") {
+        Write-Verbose "Niet-interactieve host gedetecteerd, console grootte wordt niet aangepast."
+    } else {
+        $currentWindowSize = $Host.UI.RawUI.WindowSize
+        $bufferSize = $Host.UI.RawUI.BufferSize
+
+        $newWidth = $desiredWidth
+        $newHeight = $desiredHeight
+
+        # Buffer width must be >= window width
+        if ($bufferSize.Width -lt $newWidth) {
+            $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size ($newWidth, $bufferSize.Height)
+        }
+        # Buffer height must be >= window height
+        # Als we de bufferhoogte vergroten, moeten we mogelijk de huidige bufferhoogte gebruiken als die al groter is dan de gewenste vensterhoogte
+        $newBufferHeight = [Math]::Max($bufferSize.Height, $newHeight)
+        if ($Host.UI.RawUI.BufferSize.Width -lt $newWidth -or $Host.UI.RawUI.BufferSize.Height -lt $newBufferHeight) {
+             $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size ([Math]::Max($Host.UI.RawUI.BufferSize.Width, $newWidth), $newBufferHeight)
+        }
+        
+        $Host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size ($newWidth, $newHeight)
+
+        # Zorg ervoor dat de buffer minstens zo groot is als het venster.
+        $finalBufferWidth = [Math]::Max($Host.UI.RawUI.BufferSize.Width, $newWidth)
+        $finalBufferHeight = [Math]::Max($Host.UI.RawUI.BufferSize.Height, $newHeight)
+        if ($Host.UI.RawUI.BufferSize.Width -lt $finalBufferWidth -or $Host.UI.RawUI.BufferSize.Height -lt $finalBufferHeight) {
+            $Host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size ($finalBufferWidth, $finalBufferHeight)
+        }
+        Write-Verbose "Console size set to Width: $newWidth, Height: $newHeight"
+    }
+} catch {
+    Write-Warning "Could not set console window size: $($_.Exception.Message)"
+}
+
 <#
 .PARAMETER MaxEmailsToIndex
     Specificeert het maximale aantal nieuwste e-mails dat moet worden geïndexeerd.
@@ -59,9 +99,13 @@ function Load-LocalCache {
     if (Test-Path $Script:CacheFilePath) {
         try {
             Write-Host "Lokale cache gevonden. Bezig met laden: $($Script:CacheFilePath)"
+            Write-Progress -Activity "Cache Laden" -Status "Bezig met laden van lokale cache..." -PercentComplete 30
+            
             $jsonContent = Get-Content -Path $Script:CacheFilePath -Raw -ErrorAction Stop
+            Write-Progress -Activity "Cache Laden" -Status "Cachebestand gelezen, converteren..." -PercentComplete 60
             $loadedCache = ConvertFrom-Json -InputObject $jsonContent -ErrorAction Stop
             
+            Write-Progress -Activity "Cache Laden" -Status "Cache geconverteerd, berichten verwerken..." -PercentComplete 80
             # Converteer Messages array terug naar List<PSObject> voor elke entry
             $tempCache = @{}
             foreach ($key in $loadedCache.PSObject.Properties.Name) {
@@ -77,10 +121,12 @@ function Load-LocalCache {
             }
             $Script:SenderCache = $tempCache
             Write-Host "Lokale cache succesvol geladen."
+            Write-Progress -Activity "Cache Laden" -Status "Cache succesvol geladen." -Completed
             return $true
         } catch {
             Write-Warning "Fout bij het laden of parsen van de lokale cache: $($_.Exception.Message). De cache wordt genegeerd en een volledige indexering zal worden uitgevoerd."
             $Script:SenderCache = $null # Zorg ervoor dat de cache leeg is bij een fout
+            Write-Progress -Activity "Cache Laden" -Status "Fout bij laden van cache." -Completed
             return $false
         }
     } else {
@@ -222,6 +268,7 @@ function Index-Mailbox {
                     MessageId        = $message.Id
                     Subject          = $message.Subject
                     ReceivedDateTime = $message.ReceivedDateTime
+                    SenderEmailAddress = $senderFullAddress # E-mailadres van de afzender
                     Size             = $currentMessageSize # Gebruik de (mogelijk lege) opgehaalde grootte
                     ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
                     Categories       = $message.Categories
@@ -428,19 +475,42 @@ function Convert-HtmlToPlainText {
     if ([string]::IsNullOrWhiteSpace($HtmlContent)) {
         return ""
     }
-    # Verwijder script en style blokken
-    $plainText = $HtmlContent -replace '(?s)<script.*?</script>', '' -replace '(?s)<style.*?</style>', ''
-    # Verwijder alle overige HTML tags
+    # Verwijder script en style blokken eerst
+    $plainText = $HtmlContent -replace '(?is)<script.*?</script>', '' -replace '(?is)<style.*?</style>', ''
+    
+    # Behandel specifieke tags voor newlines en basisopmaak
+    # Headings (simulatie met extra newlines en prefix/suffix)
+    $plainText = $plainText -replace '(?i)</h[1-6]>', "`r`n" # Newline na heading
+    $plainText = $plainText -replace '(?i)<h1>(.*?)</h1>', "`r`n==== $1 ====`r`n"
+    $plainText = $plainText -replace '(?i)<h2>(.*?)</h2>', "`r`n=== $1 ===`r`n"
+    $plainText = $plainText -replace '(?i)<h3>(.*?)</h3>', "`r`n== $1 ==`r`n"
+    $plainText = $plainText -replace '(?i)<h4>(.*?)</h4>', "`r`n= $1 =`r`n"
+    # <p> tags
+    $plainText = $plainText -replace '(?i)<p[^>]*>', "`r`n" # Start van <p> een newline
+    $plainText = $plainText -replace '(?i)</p>', "`r`n"    # Einde van </p> ook een newline
+    # <br> tags
+    $plainText = $plainText -replace '(?i)<br\s*/?>', "`r`n"
+    # <div> tags (behandel als paragraaf voor newlines)
+    $plainText = $plainText -replace '(?i)<div[^>]*>', "`r`n"
+    $plainText = $plainText -replace '(?i)</div>', "`r`n"
+    # List items
+    $plainText = $plainText -replace '(?i)<li[^>]*>', "`r`n  * " # Begin list item met newline en asterisk
+    $plainText = $plainText -replace '(?i)</li>', "`r`n"       # Einde list item
+
+    # Verwijder alle overige HTML tags (na de specifieke behandelingen)
     $plainText = $plainText -replace '<[^>]+>', ''
-    # Decode HTML entities (basis)
-    $plainText = $plainText -replace '&nbsp;', ' ' `
-                           -replace '&lt;', '<' `
-                           -replace '&gt;', '>' `
-                           -replace '&amp;', '&' `
-                           -replace '&quot;', '"' `
-                           -replace '&apos;', "'"
-    # Normaliseer witruimte (vervang meerdere spaties/newlines door enkele)
-    $plainText = $plainText -replace '\s{2,}', ' ' -replace '(\r?\n){2,}', "`r`n"
+    
+    # Decode HTML entities robuuster
+    $plainText = [System.Net.WebUtility]::HtmlDecode($plainText)
+
+    # Normaliseer witruimte
+    # Vervang meerdere spaties door een enkele spatie (behalve newlines)
+    $plainText = $plainText -replace '[ \t]{2,}', ' '
+    # Trim spaties en tabs aan het begin/einde van elke regel
+    $plainText = ($plainText.Split([string[]]@("`r`n", "`n"), [System.StringSplitOptions]::None) | ForEach-Object { $_.Trim() }) -join "`r`n"
+    # Verwijder meerdere opeenvolgende lege regels, laat maximaal één lege regel toe
+    $plainText = $plainText -replace "(\r?\n){3,}", "`r`n`r`n"
+    
     return $plainText.Trim()
 }
 
@@ -619,16 +689,20 @@ function Show-EmailsFromSelectedSender {
             Write-Host "E-mails van domein: $($cachedDomainEntry.Name)"
             Write-Host "Aantal in cache: $($cachedDomainEntry.Count)"
             Write-Host "Gebruik ↑/↓ om te navigeren, Enter om te selecteren/lezen, Tab om focus te wisselen, Esc/Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            Write-Host "-------------------------------------------------------------------------------------------------------------------"
-            Write-Host ("{0,-5} {1,-60} {2,-20} {3,-15}" -f "#", "Onderwerp", "Ontvangen Op", "Grootte (Bytes)")
-            Write-Host "-------------------------------------------------------------------------------------------------------------------"
+            Write-Host "------------------------------------------------------------------------------------------------------------------------" # Iets breder
+            Write-Host ("{0,-5} {1,-40} {2,-35} {3,-20} {4,-15}" -f "#", "Onderwerp", "Afzender E-mail", "Ontvangen Op", "Grootte (Bytes)")
+            Write-Host "------------------------------------------------------------------------------------------------------------------------" # Iets breder
 
             # Toon e-maillijst
             for ($i = 0; $i -lt $messagesFromDomain.Count; $i++) {
                 $message = $messagesFromDomain[$i]
                 $itemNumber = $i + 1
                 $subjectDisplay = if ($message.Subject) { ($message.Subject | Select-Object -First 1) } else { "(Geen onderwerp)" }
-                if ($subjectDisplay.Length -gt 57) { $subjectDisplay = $subjectDisplay.Substring(0, 57) + "..." }
+                if ($subjectDisplay.Length -gt 37) { $subjectDisplay = $subjectDisplay.Substring(0, 37) + "..." }
+                
+                $senderEmailDisplay = if ($message.SenderEmailAddress) { $message.SenderEmailAddress } else { "N/B" }
+                if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 32) + "..." }
+
                 $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
                 $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
                 
@@ -636,7 +710,7 @@ function Show-EmailsFromSelectedSender {
                 if ($spaceSelectedMessageIds.Contains($message.MessageId)) {
                     $selectionPrefix = "[*]" # Visuele indicator voor spatie-selectie
                 }
-                $lineText = "{0} {1,-5} {2,-57} {3,-20} {4,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $receivedDisplay, $sizeDisplay
+                $lineText = "{0} {1,-5} {2,-37} {3,-35} {4,-20} {5,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $senderEmailDisplay, $receivedDisplay, $sizeDisplay
                 
                 if ($currentFocusIsEmailList -and $i -eq $selectedEmailIndex) {
                     Write-Host $lineText -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
@@ -823,7 +897,7 @@ function Show-RecentEmails {
         Clear-Host
 
         Write-Host "Laatste 100 E-mails (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)" -ForegroundColor $cgaInstructionFgColor
-        Write-Host ("{0} {1,-55} {2,-25} {3,-20}" -f " ", "Onderwerp", "Afzender", "Ontvangen")
+        Write-Host ("{0} {1,-50} {2,-40} {3,-20}" -f " ", "Onderwerp", "Afzender E-mail", "Ontvangen") # Kolomnaam en breedte aangepast
         Write-Host ("-" * ($Host.UI.RawUI.WindowSize.Width -1))
 
 
@@ -833,10 +907,10 @@ function Show-RecentEmails {
         for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
             $message = $recentMessages[$i]
             $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
-            if ($subjectDisplay.Length -gt 52) { $subjectDisplay = $subjectDisplay.Substring(0, 52) + "..." }
+            if ($subjectDisplay.Length -gt 47) { $subjectDisplay = $subjectDisplay.Substring(0, 47) + "..." } # Aangepaste lengte
             
-            $senderDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Name } else { "N/B" }
-            if ($senderDisplay.Length -gt 22) { $senderDisplay = $senderDisplay.Substring(0, 22) + "..." }
+            $senderDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Address } else { "N/B" } # Gebruik .Address
+            if ($senderDisplay.Length -gt 37) { $senderDisplay = $senderDisplay.Substring(0, 37) + "..." } # Aangepaste lengte
 
             $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
 
@@ -860,7 +934,7 @@ function Show-RecentEmails {
             } else {
                  Write-Host $selectionIndicator -NoNewline -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
             }
-            Write-Host (" {0,-55} {1,-25} {2,-20}" -f $subjectDisplay, $senderDisplay, $receivedDisplay) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
+            Write-Host (" {0,-50} {1,-40} {2,-20}" -f $subjectDisplay, $senderDisplay, $receivedDisplay) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor # Formattering aangepast
         }
         
         Write-Host ("-" * ($Host.UI.RawUI.WindowSize.Width -1))
@@ -1850,7 +1924,7 @@ function Search-Mail {
     Write-Host "Zoek naar e-mails in mailbox: $UserId"
     Write-Host "---------------------------------------"
     
-    $searchTerm = Read-Host "Voer zoekterm in (zoekt in onderwerp, body, afzender)"
+    $searchTerm = Read-Host "Voer zoekterm in (hoofdletterongevoelig, gebruik * voor wildcards. Zoekt in onderwerp, body, afzender)"
     if ([string]::IsNullOrWhiteSpace($searchTerm)) {
         Write-Warning "Geen zoekterm ingevoerd. Zoekactie geannuleerd."
         Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
@@ -2023,7 +2097,8 @@ function Show-EmailActionsMenu {
             }
             "4" {
                 if ($message.HasAttachments) {
-                    Download-MessageAttachments -UserId $UserId -MessageId $MessageId
+                    # Geef het volledige $message object mee voor de naamgevingsconventie
+                    Download-MessageAttachments -UserId $UserId -MessageId $MessageId -FullMessageObject $message
                 } else {
                     Write-Host "Deze e-mail heeft geen bijlagen."
                 }
@@ -2031,7 +2106,7 @@ function Show-EmailActionsMenu {
                 Show-EmailActionsMenu -UserId $UserId -MessageId $MessageId
                 return # Voorkom dubbele Read-Host aan het einde van de parent functie
             }
-            "5" { 
+            "5" {
                 # Terugkeren gebeurt automatisch na de switch als er geen 'return' is in Search-Mail
                 Write-Host "Terug naar zoekresultaten..."
                 return 
@@ -2067,7 +2142,8 @@ function Ensure-DownloadPath {
 function Download-MessageAttachments {
     param(
         [string]$UserId,
-        [string]$MessageId
+        [string]$MessageId,
+        [PSCustomObject]$FullMessageObject # Nieuwe parameter voor naamgevingsconventie
     )
     Clear-Host
     Write-Host "Bijlagen voor e-mail ID: $MessageId"
@@ -2100,7 +2176,7 @@ function Download-MessageAttachments {
             return
         }
 
-        $defaultDownloadPath = Join-Path -Path $PSScriptRoot -ChildPath "_downloads"
+        $defaultDownloadPath = Join-Path -Path $PSScriptRoot -ChildPath "_attachments" # Mapnaam gewijzigd
         $downloadPath = Read-Host "Voer het pad in voor de downloads (standaard: $defaultDownloadPath)"
         if ([string]::IsNullOrWhiteSpace($downloadPath)) {
             $downloadPath = $defaultDownloadPath
@@ -2123,34 +2199,70 @@ function Download-MessageAttachments {
         }
 
         foreach ($attachment in $attachmentsToDownload) {
-            $fileName = $attachment.Name
-            # Sanitize filename (basic example, might need more robust sanitization)
-            $invalidChars = [System.IO.Path]::GetInvalidFileNameChars()
-            $regexInvalidChars = "[{0}]" -f ([regex]::Escape(-join $invalidChars))
-            $safeFileName = $fileName -replace $regexInvalidChars, '_'
+            # Implementeer nieuwe naamgevingsconventie
+            $emailReceivedDate = Get-Date $FullMessageObject.ReceivedDateTime -Format "yyyy-MM-dd"
             
-            $filePath = Join-Path -Path $downloadPath -ChildPath $safeFileName
+            $emailSenderAddress = $FullMessageObject.From.EmailAddress.Address
+            $emailSenderDomain = "unknowndomain"
+            $emailSenderExtension = "unknownext"
+            if ($emailSenderAddress -and $emailSenderAddress -match "@") {
+                $domainPart = ($emailSenderAddress -split '@')[1]
+                if ($domainPart -match "\.") {
+                    $emailSenderDomain = ($domainPart -split "\.", 2)[0]
+                    $emailSenderExtension = ($domainPart -split "\.", 2)[1]
+                } else {
+                    $emailSenderDomain = $domainPart
+                    $emailSenderExtension = "" 
+                }
+            }
+
+            $emailSubject = $FullMessageObject.Subject
+            
+            # Definieer ongeldige tekens voor bestandsnamen (inclusief pad-specifieke tekens)
+            $invalidPathChars = [System.IO.Path]::GetInvalidFileNameChars() + @(':', '/', '\', '?', '*', '"', '<', '>', '|') 
+            $regexInvalidPathChars = "[{0}]" -f ([regex]::Escape(-join $invalidPathChars))
+
+            $safeSubject = "NoSubject"
+            if (-not [string]::IsNullOrWhiteSpace($emailSubject)) {
+                $safeSubject = ($emailSubject -replace $regexInvalidPathChars, '_').Substring(0, [Math]::Min($emailSubject.Length, 30))
+            }
+            
+            $attachmentOriginalName = $attachment.Name
+            $attachmentBaseNamePart = [System.IO.Path]::GetFileNameWithoutExtension($attachmentOriginalName) -replace $regexInvalidPathChars, '_'
+            $attachmentExtensionPart = [System.IO.Path]::GetExtension($attachmentOriginalName) # Inclusief de punt, bijv. ".pdf"
+
+            $baseFileNameForSaving = "{0}_{1}_{2}-{3}-{4}" -f $emailReceivedDate, $emailSenderDomain, $emailSenderExtension, $safeSubject, $attachmentBaseNamePart
+            
+            # Zorg dat de volledige bestandsnaam (basis + extensie) niet te lang wordt
+            $maxBaseNameLength = 200 # Arbitraire limiet voor de basisnaam om totale lengte te beheren
+            if ($baseFileNameForSaving.Length -gt $maxBaseNameLength) {
+                $baseFileNameForSaving = $baseFileNameForSaving.Substring(0, $maxBaseNameLength)
+            }
+
+            $currentFileNameAttempt = $baseFileNameForSaving + $attachmentExtensionPart
+            $filePath = Join-Path -Path $downloadPath -ChildPath $currentFileNameAttempt
             $counter = 1
-            $baseName = [System.IO.Path]::GetFileNameWithoutExtension($safeFileName)
-            $extension = [System.IO.Path]::GetExtension($safeFileName)
             
+            # Controleer of bestand al bestaat en voeg teller toe indien nodig
             while (Test-Path $filePath) {
-                $newFileName = "{0}_{1}{2}" -f $baseName, $counter, $extension
-                $filePath = Join-Path -Path $downloadPath -ChildPath $newFileName
+                $newFileNameWithCounter = "{0}_{1}{2}" -f $baseFileNameForSaving, $counter, $attachmentExtensionPart
+                $filePath = Join-Path -Path $downloadPath -ChildPath $newFileNameWithCounter
                 $counter++
             }
 
             Write-Host "Downloaden van '$($attachment.Name)' naar '$filePath'..."
             try {
                 # Gebruik Invoke-MgGraphRequest om de raw content van de bijlage te krijgen
+                # Zorg ervoor dat $attachment.Id correct is. Soms is het @odata.id of iets dergelijks.
+                # Get-MgUserMessageAttachment retourneert objecten waar .Id de attachment ID is.
                 $attachmentValueUri = "/users/$UserId/messages/$MessageId/attachments/$($attachment.Id)/`$value"
-                $attachmentContent = Invoke-MgGraphRequest -Method GET -Uri $attachmentValueUri -ErrorAction Stop
+                $attachmentContentBytes = Invoke-MgGraphRequest -Method GET -Uri $attachmentValueUri -ErrorAction Stop -OutputType Binary # Vraag binaire output
                 
-                if ($attachmentContent) {
-                    [System.IO.File]::WriteAllBytes($filePath, $attachmentContent)
+                if ($attachmentContentBytes -and $attachmentContentBytes.Length -gt 0) {
+                    [System.IO.File]::WriteAllBytes($filePath, $attachmentContentBytes)
                     Write-Host "Bijlage '$($attachment.Name)' succesvol opgeslagen als '$filePath'."
                 } else {
-                    Write-Warning "Invoke-MgGraphRequest gaf geen content terug voor bijlage '$($attachment.Name)'. Overslaan."
+                    Write-Warning "Invoke-MgGraphRequest gaf geen (of lege) content terug voor bijlage '$($attachment.Name)'. Overslaan."
                 }
             } catch {
                 Write-Warning "Fout bij downloaden of opslaan van bijlage '$($attachment.Name)': $($_.Exception.Message)"
