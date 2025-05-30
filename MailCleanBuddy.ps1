@@ -1060,8 +1060,9 @@ function Perform-ActionOnMultipleEmails {
                 Write-Progress -Activity "Geselecteerde e-mails verwijderen" -Completed
                 Write-Host "Verwijderen voltooid. $($MessagesToProcess.Count - $errorCount) e-mail(s) verwijderd."
                 if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd." }
-                Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-                while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {}
+                # Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor # Verwijderd
+                # while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {} # Verwijderd
+                Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen, daarna direct terug
             } else {
                 Write-Host "Verwijderen geannuleerd."
                 Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen
@@ -1102,8 +1103,9 @@ function Perform-ActionOnMultipleEmails {
                     Write-Progress -Activity "Geselecteerde e-mails verplaatsen" -Completed
                     Write-Host "Verplaatsen voltooid. $($MessagesToProcess.Count - $errorCount) e-mail(s) verplaatst."
                     if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verplaatst." }
-                    Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-                    while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {}
+                    # Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor # Verwijderd
+                    # while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {} # Verwijderd
+                    Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen, daarna direct terug
                 } else {
                     Write-Host "Verplaatsen geannuleerd."
                     Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen
