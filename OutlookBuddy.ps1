@@ -2061,7 +2061,11 @@ function Show-RecentEmails {
 
             # Callback functie om data te herladen
             $refreshCallback = {
-                param($CurrentUserId, $CurrentGetMgUserMessageParamsForRecent, $CurrentSizePropertySuccessfullyUsed) # Voeg $CurrentSizePropertySuccessfullyUsed toe
+                param($CurrentUserId, $CallbackContext) # $CallbackContext is nu een hashtable
+                $CurrentGetMgUserMessageParamsForRecent = $CallbackContext.Params
+                $CurrentSizePropertySuccessfullyUsed = $CallbackContext.SizeUsed
+                $sizePropertyForCallback = "size" # Zorg dat dit consistent is met de buitenste scope of definieer lokaal
+
                 Write-Host "Recente e-mails herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
                 # De $CurrentGetMgUserMessageParamsForRecent bevat al de juiste Property selectie (met of zonder size)
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForRecent -ErrorAction SilentlyContinue
@@ -2069,8 +2073,8 @@ function Show-RecentEmails {
                 if ($reloadedMessages) {
                     foreach ($rmsg in $reloadedMessages) {
                         $reloadedMessageSize = $null
-                        if ($CurrentSizePropertySuccessfullyUsed -and $rmsg.PSObject.Properties[$sizeProperty]) {
-                             $reloadedMessageSize = $rmsg.$sizeProperty
+                        if ($CurrentSizePropertySuccessfullyUsed -and $rmsg.PSObject.Properties[$sizePropertyForCallback]) { # Gebruik lokale $sizePropertyForCallback
+                             $reloadedMessageSize = $rmsg.$sizePropertyForCallback
                         }
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
@@ -2086,8 +2090,9 @@ function Show-RecentEmails {
                 return $reloadedMessagesForView
             }
             # Geef $sizePropertySuccessfullyUsed mee aan de context van de callback
+            # Deze $callbackContext structuur is al correct door de vorige (succesvolle) patch.
             $callbackContext = @{
-                Params = $getMgUserMessageParams
+                Params = $getMgUserMessageParams # Dit bevat de correcte 'Property' (met of zonder size)
                 SizeUsed = $sizePropertySuccessfullyUsed
             }
 
