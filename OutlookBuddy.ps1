@@ -645,146 +645,74 @@ function Show-EmailsFromSelectedSender {
         [PSCustomObject]$SenderInfo # Ontvangt nu een object met .Domain, .Name (is domein), .Count
     )
 
-    $domainName = $SenderInfo.Domain # Gebruik .Domain ipv .Email
+    $domainName = $SenderInfo.Domain
     $normalizedDomainKey = $domainName.ToLowerInvariant()
-    $userWantsToExitDomainView = $false # Vlag om aan te geven dat de gebruiker expliciet terug wil
 
-    # Blijf in een lus zolang er berichten zijn voor dit domein en de gebruiker niet terug wil
-    while ($Script:SenderCache.ContainsKey($normalizedDomainKey) -and $Script:SenderCache[$normalizedDomainKey].Messages.Count -gt 0 -and -not $userWantsToExitDomainView) {
-        # CGA Kleuren moeten hier ook worden ingesteld als deze functie direct wordt aangeroepen
-        # en niet via een menu dat al kleuren beheert.
-        # CGA Kleuren
-        $cgaBgColor = [System.ConsoleColor]::Black
-        $cgaFgColor = [System.ConsoleColor]::Green
-        $cgaSelectedBgColor = [System.ConsoleColor]::Green
-        $cgaSelectedFgColor = [System.ConsoleColor]::Black
-        $cgaInstructionFgColor = [System.ConsoleColor]::White
+    # CGA Kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black
+    $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaInstructionFgColor = [System.ConsoleColor]::White # Nodig voor callbacks
 
-        $selectedEmailIndex = 0
-        $selectedActionIndex = 0 # Voor het actiemenu onderaan
-        $spaceSelectedMessageIds = [System.Collections.Generic.HashSet[string]]::new() # Voor spatiebalkselectie
-
-        # Acties die onderaan de e-maillijst getoond worden
-        $bottomMenuItems = @(
-            "Acties op selectie (Enter/Spatie)",  # Index 0 - Aangepaste tekst
-            "Beheer ALLE e-mails van dit domein", # Index 1
-            "Terug naar domeinoverzicht (Esc/Q)"  # Index 2
-        )
-        $currentFocusIsEmailList = $true # Deze logica wordt nu anders.
-        $selectedActionIndex = 0 # Voor het actiemenu onderaan, indien nog gebruikt.
-
-        # Acties die onderaan de e-maillijst getoond worden (of na het verlaten van de lijst)
-        $domainSpecificMenuItems = @(
-            "Beheer ALLE e-mails van dit domein ($($SenderInfo.Domain))",
-            "Terug naar domeinoverzicht (Esc/Q)"
-        )
-
-        $Host.UI.RawUI.ForegroundColor = $cgaFgColor
+    if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey) -or $Script:SenderCache[$normalizedDomainKey].Messages.Count -eq 0) {
+        # Deze situatie zou idealiter al afgevangen moeten zijn in Show-SenderOverview
+        # of de cache is gewijzigd tussen de selectie en deze aanroep.
+        $Host.UI.RawUI.ForegroundColor = $cgaFgColor # Herstel kleuren voor het geval ze anders waren
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
+        Write-Host "Geen e-mails (meer) in de cache voor domein '$domainName'." -ForegroundColor $cgaInstructionFgColor
+        Write-Host "Druk op Escape of Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        $readKeyOptionsEmpty = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+        while($true){ $key = $Host.UI.RawUI.ReadKey($readKeyOptionsEmpty); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
+        return # Verlaat Show-EmailsFromSelectedSender
+    }
 
-        # Hoofd lus voor dit menu (Show-EmailsFromSelectedSender)
-        $senderEmailViewLoopActive = $true
-        while ($senderEmailViewLoopActive) {
-            if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey) -or $Script:SenderCache[$normalizedDomainKey].Messages.Count -eq 0) {
-                Write-Host "Geen e-mails (meer) in de cache voor domein '$domainName'." -ForegroundColor $cgaInstructionFgColor
-                Write-Host "Druk op Escape of Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
-                $readKeyOptionsEmpty = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-                while($true){ $key = $Host.UI.RawUI.ReadKey($readKeyOptionsEmpty); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
-                return # Verlaat Show-EmailsFromSelectedSender
-            }
+    $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
+    $messagesFromCache = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
 
-            $cachedDomainEntry = $Script:SenderCache[$normalizedDomainKey]
-            $messagesFromCache = $cachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
+    # Data voorbereiden voor Show-StandardizedEmailListView
+    $messagesForView = @()
+    foreach ($msgDetail in $messagesFromCache) {
+        $messagesForView += [PSCustomObject]@{
+            Id                 = $msgDetail.MessageId
+            ReceivedDateTime   = $msgDetail.ReceivedDateTime
+            Subject            = $msgDetail.Subject
+            SenderName         = $msgDetail.SenderName
+            SenderEmailAddress = $msgDetail.SenderEmailAddress
+            Size               = $msgDetail.Size
+            MessageForActions  = $msgDetail # Het cache (messageDetail) object
+        }
+    }
 
-            # Data voorbereiden voor Show-EmailListView
-            $messagesForView = @()
-            foreach ($msgDetail in $messagesFromCache) {
-                $messagesForView += [PSCustomObject]@{
-                    Id                 = $msgDetail.MessageId
-                    ReceivedDateTime   = $msgDetail.ReceivedDateTime
-                    Subject            = $msgDetail.Subject
-                    SenderName         = $msgDetail.SenderName
-                    SenderEmailAddress = $msgDetail.SenderEmailAddress
-                    Size               = $msgDetail.Size
-                    MessageForActions  = $msgDetail # Het cache (messageDetail) object
+    # Callback functie om data te herladen (haalt opnieuw uit cache)
+    $refreshCallbackForCache = {
+        param($CurrentUserId, $CurrentNormalizedDomainKeyForCallback) # Context is de domain key
+        Write-Host "E-maillijst voor domein '$CurrentNormalizedDomainKeyForCallback' herladen uit cache..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+        $reloadedMessagesForView = @()
+        if ($Script:SenderCache.ContainsKey($CurrentNormalizedDomainKeyForCallback)) {
+            $reloadedCachedDomainEntry = $Script:SenderCache[$CurrentNormalizedDomainKeyForCallback]
+            $reloadedMessagesFromCache = $reloadedCachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
+            foreach ($rmsgDetail in $reloadedMessagesFromCache) {
+                $reloadedMessagesForView += [PSCustomObject]@{
+                    Id                 = $rmsgDetail.MessageId
+                    ReceivedDateTime   = $rmsgDetail.ReceivedDateTime
+                    Subject            = $rmsgDetail.Subject
+                    SenderName         = $rmsgDetail.SenderName
+                    SenderEmailAddress = $rmsgDetail.SenderEmailAddress
+                    Size               = $rmsgDetail.Size
+                    MessageForActions  = $rmsgDetail
                 }
             }
+        }
+        # Als $reloadedMessagesForView leeg is na de refresh (bijv. alle mails verwijderd),
+        # zal Show-StandardizedEmailListView dit correct afhandelen en terugkeren.
+        return $reloadedMessagesForView
+    }
 
-            # Callback functie om data te herladen (haalt opnieuw uit cache)
-            $refreshCallbackForCache = {
-                param($CurrentUserId, $CurrentNormalizedDomainKey)
-                Write-Host "E-maillijst voor domein '$CurrentNormalizedDomainKey' herladen uit cache..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
-                $reloadedMessagesForView = @()
-                if ($Script:SenderCache.ContainsKey($CurrentNormalizedDomainKey)) {
-                    $reloadedCachedDomainEntry = $Script:SenderCache[$CurrentNormalizedDomainKey]
-                    $reloadedMessagesFromCache = $reloadedCachedDomainEntry.Messages | Sort-Object ReceivedDateTime -Descending
-                    foreach ($rmsgDetail in $reloadedMessagesFromCache) {
-                        $reloadedMessagesForView += [PSCustomObject]@{
-                            Id                 = $rmsgDetail.MessageId
-                            ReceivedDateTime   = $rmsgDetail.ReceivedDateTime
-                            Subject            = $rmsgDetail.Subject
-                            SenderName         = $rmsgDetail.SenderName
-                            SenderEmailAddress = $rmsgDetail.SenderEmailAddress
-                            Size               = $rmsgDetail.Size
-                            MessageForActions  = $rmsgDetail
-                        }
-                    }
-                }
-                return $reloadedMessagesForView
-            }
-
-            # Toon de e-maillijst met de generieke functie
-            # De Show-StandardizedEmailListView handelt Esc/Q af om terug te keren naar deze lus.
-            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "E-mails van domein: $($cachedDomainEntry.Name)" -AllowActions $true -DomainToUpdateCache $domainName -RefreshDataCallback $refreshCallbackForCache -RefreshDataCallbackContext $normalizedDomainKey
-
-            # Na terugkeer uit Show-StandardizedEmailListView (via Esc/Q), toon het domein-specifieke menu
-            $Host.UI.RawUI.ForegroundColor = $cgaFgColor
-            $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-            Clear-Host
-            Write-Host "Acties voor domein: $($SenderInfo.Domain) (Aantal: $($cachedDomainEntry.Count))"
-            Write-Host "----------------------------------------------------"
-            for ($i = 0; $i -lt $domainSpecificMenuItems.Count; $i++) {
-                $actionText = $domainSpecificMenuItems[$i]
-                if ($i -eq $selectedActionIndex) {
-                    Write-Host "> $($actionText)" -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
-                } else {
-                    Write-Host "  $($actionText)"
-                }
-            }
-            Write-Host "----------------------------------------------------"
-            Write-Host "Gebruik ↑/↓, Enter, Esc/Q" -ForegroundColor $cgaInstructionFgColor
-
-            $readKeyOptionsDomainMenu = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-            $keyInfoDomainMenu = $Host.UI.RawUI.ReadKey($readKeyOptionsDomainMenu)
-            $chosenDomainAction = $null
-
-            switch ($keyInfoDomainMenu.VirtualKeyCode) {
-                38 { $selectedActionIndex = ($selectedActionIndex - 1 + $domainSpecificMenuItems.Count) % $domainSpecificMenuItems.Count }
-                40 { $selectedActionIndex = ($selectedActionIndex + 1) % $domainSpecificMenuItems.Count }
-                13 { $chosenDomainAction = $domainSpecificMenuItems[$selectedActionIndex] }
-                27 { $senderEmailViewLoopActive = $false; $userWantsToExitDomainView = $true } # Esc: stop binnenste lus en signaleer buitenste lus
-                default {
-                    if ($keyInfoDomainMenu.Character.ToString().ToUpper() -eq 'Q') { $senderEmailViewLoopActive = $false; $userWantsToExitDomainView = $true } # Q: idem
-                }
-            }
-
-            if ($chosenDomainAction) {
-                if ($chosenDomainAction -like "Beheer ALLE e-mails*") {
-                    $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                    # Zorg ervoor dat $messagesFromCache (de volledige lijst van messageDetails) wordt meegegeven
-                    $allMessagesWereModified = Perform-ActionOnAllSenderEmails -UserId $UserId -SenderDomain $domainName -AllMessages $messagesFromCache
-                    if ($allMessagesWereModified -or -not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
-                        $senderEmailViewLoopActive = $false # Verlaat dit menu als domein weg is of alles is aangepast
-                    }
-                    # Anders blijft de lus actief en wordt de lijst opnieuw geladen bovenaan.
-                } elseif ($chosenDomainAction -like "Terug*") {
-                    $senderEmailViewLoopActive = $false
-                }
-            }
-        } # Einde while ($senderEmailViewLoopActive)
-    } # Einde hoofd while ($Script:SenderCache.ContainsKey...
-    # Na het verlaten van de lussen, keert de functie terug naar Show-SenderOverview, die zijn eigen UI-lus heeft.
+    # Toon de e-maillijst met de generieke functie.
+    # Show-StandardizedEmailListView handelt Esc/Q af en keert dan hier terug.
+    # Na terugkeer uit Show-StandardizedEmailListView, zal deze functie Show-EmailsFromSelectedSender ook eindigen,
+    # en de controle teruggeven aan Show-SenderOverview.
+    Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "E-mails van domein: $($cachedDomainEntry.Name)" -AllowActions $true -DomainToUpdateCache $domainName -RefreshDataCallback $refreshCallbackForCache -RefreshDataCallbackContext $normalizedDomainKey
 }
 
 # NIEUWE GESTANDAARDISEERDE FUNCTIE VOOR E-MAILLIJSTEN
@@ -832,9 +760,9 @@ function Show-StandardizedEmailListView {
 
         Write-Host "$ViewTitle (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open/Acties)" -ForegroundColor $cgaInstructionFgColor
         if ($AllowActions) {
-            Write-Host "Acties: V: Verplaats, Del: Verwijder | Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
+            Write-Host "Acties: V: Verplaats, Del: Verwijder | A: Selecteer Alles, N: Deselecteer Alles | Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
         } else {
-            Write-Host "Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
+            Write-Host "A: Selecteer Alles, N: Deselecteer Alles | Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
         }
 
         # Kolomvolgorde: Datum, Afzender Naam, Onderwerp, Afzender E-mail, Grootte
@@ -957,7 +885,19 @@ function Show-StandardizedEmailListView {
                 }
             }
             default {
-                if ($AllowActions) {
+                $charPressed = $keyInfo.Character.ToString().ToUpper()
+
+                if ($charPressed -eq 'A') { # A - Selecteer Alles
+                    if ($currentMessages.Count -gt 0) {
+                        # $spaceSelectedMessageIds.Clear() # Optioneel: eerst deselecteren of additief maken? Voor nu, vervang selectie.
+                        foreach ($msg_sa in $currentMessages) { # Gebruik andere variabele naam om conflict te voorkomen
+                            $spaceSelectedMessageIds.Add($msg_sa.Id) | Out-Null
+                        }
+                    }
+                } elseif ($charPressed -eq 'N') { # N - Deselecteer Alles (None)
+                    $spaceSelectedMessageIds.Clear()
+                }
+                elseif ($AllowActions) {
                     if ($keyInfo.VirtualKeyCode -eq 86) { # V - Verplaatsen
                         $messagesToActOnList = New-Object System.Collections.Generic.List[PSObject]
                         if ($spaceSelectedMessageIds.Count -gt 0) {
