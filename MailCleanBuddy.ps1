@@ -19,7 +19,7 @@
 #>
 [CmdletBinding()]
 param (
-    [Parameter(Mandatory = $true, HelpMessage = (Get-LocStr "param_mailboxEmail_help"))]
+    [Parameter(Mandatory = $true, HelpMessage = "The email address of the mailbox to manage.")]
     [string]$MailboxEmail,
 
     [Parameter(Mandatory = $false)]
@@ -28,7 +28,7 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$MaxEmailsToIndex = 0, # Nieuwe parameter om het max aantal te indexeren mails te specificeren
 
-    [Parameter(Mandatory = $false, HelpMessage = (Get-LocStr "param_language_help"))]
+    [Parameter(Mandatory = $false, HelpMessage = "Specifies the UI language (e.g., nl, en, de, fr). Default is 'nl'.")]
     [string]$Language = "nl"
 )
 
