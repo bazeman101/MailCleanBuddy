@@ -2450,7 +2450,8 @@ function Show-MainMenu {
             $lineContent = $innerFramePadding + $itemText.PadRight($menuWidth) + $innerFramePadding
 
             if ($i -eq $selectedItemIndex) {
-                Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
+                Write-Host $leftPadding -NoNewline -ForegroundColor $cgaFgColor -BackgroundColor $cgaBgColor # Standaard kleuren voor de padding
+                Write-Host $lineContent -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor # Geselecteerde kleuren voor de content
             } else {
                 Write-Host ($leftPadding + $lineContent) -ForegroundColor $cgaFgColor -BackgroundColor $cgaBgColor
             }
