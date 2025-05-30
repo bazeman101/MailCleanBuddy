@@ -1991,6 +1991,77 @@ function Search-Mail {
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
+function Show-RecentEmails {
+    param($UserId)
+
+    # CGA Kleuren
+    $cgaBgColor = [System.ConsoleColor]::Black; $cgaFgColor = [System.ConsoleColor]::Green
+    $cgaSelectedBgColor = [System.ConsoleColor]::Green; $cgaSelectedFgColor = [System.ConsoleColor]::Black
+    $cgaInstructionFgColor = [System.ConsoleColor]::White
+
+    Clear-Host
+    Write-Host "Ophalen van de laatste 100 e-mails voor $UserId..."
+
+    try {
+        $getMgUserMessageParams = @{
+            UserId      = $UserId
+            Top         = 100
+            OrderBy     = "receivedDateTime desc"
+            Property    = "id,subject,from,receivedDateTime,size,hasAttachments,bodyPreview"
+            ErrorAction = "Stop"
+        }
+
+        $recentMessages = Get-MgUserMessage @getMgUserMessageParams
+
+        if ($null -eq $recentMessages -or $recentMessages.Count -eq 0) {
+            Write-Host "Geen recente e-mails gevonden."
+        } else {
+            $messagesForView = @()
+            foreach ($msg in $recentMessages) {
+                $messagesForView += [PSCustomObject]@{
+                    Id                 = $msg.Id
+                    ReceivedDateTime   = $msg.ReceivedDateTime
+                    Subject            = $msg.Subject
+                    SenderName         = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Name } else { "N/B" }
+                    SenderEmailAddress = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Address } else { "N/B" }
+                    Size               = if ($msg.PSObject.Properties['Size']) { $msg.Size } else { $null }
+                    MessageForActions  = $msg # Het originele Graph object
+                }
+            }
+
+            # Callback functie om data te herladen
+            $refreshCallback = {
+                param($CurrentUserId, $CurrentGetMgUserMessageParamsForRecent)
+                Write-Host "Recente e-mails herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForRecent -ErrorAction SilentlyContinue
+                $reloadedMessagesForView = @()
+                if ($reloadedMessages) {
+                    foreach ($rmsg in $reloadedMessages) {
+                        $reloadedMessagesForView += [PSCustomObject]@{
+                            Id                 = $rmsg.Id
+                            ReceivedDateTime   = $rmsg.ReceivedDateTime
+                            Subject            = $rmsg.Subject
+                            SenderName         = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Name } else { "N/B" }
+                            SenderEmailAddress = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Address } else { "N/B" }
+                            Size               = if ($rmsg.PSObject.Properties['Size']) { $rmsg.Size } else { $null }
+                            MessageForActions  = $rmsg
+                        }
+                    }
+                }
+                return $reloadedMessagesForView
+            }
+
+            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Laatste 100 e-mails" -AllowActions $true -DomainToUpdateCache "RECENT_EMAILS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $getMgUserMessageParams
+        }
+    } catch {
+        Write-Error "Fout bij het ophalen van recente e-mails: $($_.Exception.Message)"
+        if ($_.ScriptStackTrace) {
+            Write-Error "StackTrace: $($_.ScriptStackTrace)"
+        }
+    }
+    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+}
+
 function Show-EmailActionsMenu {
     param(
         [string]$UserId,
@@ -2331,11 +2402,12 @@ function Show-MainMenu {
         "1. Overzicht van verzenders (uit cache)",
         "2. Beheer mails van specifieke afzender",    # Werkt op cache
         "3. Zoek naar een mail (live)",              # Zoekt live, niet uit cache
-        "4. Leeg 'Verwijderde Items' (live)",
-        "R. Ververs Index vanaf Server (Forceer Refresh)", # Nieuwe/hernoemde optie
+        "4. Bekijk laatste 100 e-mails (live)",     # Nieuwe optie
+        "5. Leeg 'Verwijderde Items' (live)",
+        "R. Ververs Index vanaf Server (Forceer Refresh)",
         "Q. Afsluiten"
     )
-    $actionCodes = "1", "2", "3", "4", "R", "Q" # Aangepaste actiecodes
+    $actionCodes = "1", "2", "3", "4", "5", "R", "Q"
 
     $selectedItemIndex = 0
     $menuLoopActive = $true
@@ -2432,7 +2504,8 @@ function Show-MainMenu {
                 "1" { Show-SenderOverview -UserId $UserEmail }
                 "2" { Manage-EmailsBySender -UserId $UserEmail }
                 "3" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent }
-                "4" { Empty-DeletedItemsFolder -UserId $UserEmail } # Was 5
+                "4" { Show-RecentEmails -UserId $UserEmail } # Nieuwe actie
+                "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
                 "R" {
                     Write-Host "Volledige indexering vanaf server wordt gestart..."
                     Index-Mailbox -UserId $UserEmail # Deze functie slaat de cache zelf op
