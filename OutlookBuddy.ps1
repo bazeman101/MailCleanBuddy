@@ -647,9 +647,10 @@ function Show-EmailsFromSelectedSender {
 
     $domainName = $SenderInfo.Domain # Gebruik .Domain ipv .Email
     $normalizedDomainKey = $domainName.ToLowerInvariant()
+    $userWantsToExitDomainView = $false # Vlag om aan te geven dat de gebruiker expliciet terug wil
 
     # Blijf in een lus zolang er berichten zijn voor dit domein en de gebruiker niet terug wil
-    while ($Script:SenderCache.ContainsKey($normalizedDomainKey) -and $Script:SenderCache[$normalizedDomainKey].Messages.Count -gt 0) {
+    while ($Script:SenderCache.ContainsKey($normalizedDomainKey) -and $Script:SenderCache[$normalizedDomainKey].Messages.Count -gt 0 -and -not $userWantsToExitDomainView) {
         # CGA Kleuren moeten hier ook worden ingesteld als deze functie direct wordt aangeroepen
         # en niet via een menu dat al kleuren beheert.
         # CGA Kleuren
@@ -762,9 +763,9 @@ function Show-EmailsFromSelectedSender {
                 38 { $selectedActionIndex = ($selectedActionIndex - 1 + $domainSpecificMenuItems.Count) % $domainSpecificMenuItems.Count }
                 40 { $selectedActionIndex = ($selectedActionIndex + 1) % $domainSpecificMenuItems.Count }
                 13 { $chosenDomainAction = $domainSpecificMenuItems[$selectedActionIndex] }
-                27 { $senderEmailViewLoopActive = $false } # Esc verlaat Show-EmailsFromSelectedSender
+                27 { $senderEmailViewLoopActive = $false; $userWantsToExitDomainView = $true } # Esc: stop binnenste lus en signaleer buitenste lus
                 default {
-                    if ($keyInfoDomainMenu.Character.ToString().ToUpper() -eq 'Q') { $senderEmailViewLoopActive = $false }
+                    if ($keyInfoDomainMenu.Character.ToString().ToUpper() -eq 'Q') { $senderEmailViewLoopActive = $false; $userWantsToExitDomainView = $true } # Q: idem
                 }
             }
 
