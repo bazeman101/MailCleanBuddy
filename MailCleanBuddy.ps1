@@ -86,22 +86,38 @@ function Get-LocStr {
         [string]$Key,
         [object[]]$FormatArgs = @()
     )
-    if ($Script:LocalizedStrings -and $Script:LocalizedStrings.ContainsKey($Key)) {
-        $localizedString = $Script:LocalizedStrings[$Key]
-        if ($FormatArgs.Count -gt 0) {
-            try {
-                return ($localizedString -f $FormatArgs)
-            } catch {
-                Write-Warning "Error formatting localized string for key '$Key' with args '$($FormatArgs -join ', ')'. Raw string returned. Error: $($_.Exception.Message)"
-                return $localizedString # Geef onbewerkte string terug bij formatteerfout
+    if ($Script:LocalizedStrings) {
+        $keyExists = $false
+        $localizedString = $null
+
+        if ($Script:LocalizedStrings -is [hashtable]) {
+            if ($Script:LocalizedStrings.ContainsKey($Key)) {
+                $keyExists = $true
+                $localizedString = $Script:LocalizedStrings[$Key]
             }
-        } else {
-            return $localizedString
+        } elseif ($Script:LocalizedStrings -is [System.Management.Automation.PSCustomObject]) {
+            if ($Script:LocalizedStrings.PSObject.Properties.Name -contains $Key) {
+                $keyExists = $true
+                $localizedString = $Script:LocalizedStrings.$Key
+            }
         }
-    } else {
-        Write-Warning "Localization key '$Key' not found for language '$($Script:SelectedLanguage)'. Returning key itself."
-        return $Key # Geef de key terug als de string niet gevonden is
+
+        if ($keyExists) {
+            if ($FormatArgs.Count -gt 0) {
+                try {
+                    return ($localizedString -f $FormatArgs)
+                } catch {
+                    Write-Warning "Error formatting localized string for key '$Key' with args '$($FormatArgs -join ', ')'. Raw string returned. Error: $($_.Exception.Message)"
+                    return $localizedString # Geef onbewerkte string terug bij formatteerfout
+                }
+            } else {
+                return $localizedString
+            }
+        }
     }
+    # Als de key niet bestaat of $Script:LocalizedStrings is null/onverwacht type
+    Write-Warning "Localization key '$Key' not found for language '$($Script:SelectedLanguage)'. Returning key itself."
+    return $Key # Geef de key terug als de string niet gevonden is
 }
 
 # Laad de lokalisatiestrings aan het begin van het script
