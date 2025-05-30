@@ -600,7 +600,7 @@ function Convert-HtmlToPlainText {
 function Get-Confirmation {
     param (
         [string]$PromptMessage,
-        [string]$WindowTitle = "Bevestiging"
+        [string]$WindowTitle = (Get-LocStr "confirmation_title")
     )
 
     # Sla huidige consolekleuren op (wordt hersteld door aanroepende functie of hoofdmenu)
@@ -615,8 +615,8 @@ function Get-Confirmation {
     $cgaInstructionFgColor = [System.ConsoleColor]::White
     $cgaWarningFgColor = [System.ConsoleColor]::Red # Voor de prompt message
 
-    $options = @("Ja", "Nee")
-    $selectedOptionIndex = 0 # Standaard "Ja"
+    $options = @((Get-LocStr "confirmation_yes"), (Get-LocStr "confirmation_no"))
+    $selectedOptionIndex = 0 # Standaard "Ja" / "Yes"
     $confirmationLoopActive = $true
 
     while ($confirmationLoopActive) {
@@ -656,7 +656,7 @@ function Get-Confirmation {
             13 { # Enter
                 $confirmationLoopActive = $false
                 # Kleuren worden hersteld door de aanroepende functie
-                return ($options[$selectedOptionIndex] -eq "Ja")
+                return ($options[$selectedOptionIndex] -eq (Get-LocStr "confirmation_yes"))
             }
             27 { # Escape
                 $confirmationLoopActive = $false
@@ -684,19 +684,19 @@ function Update-SenderCache {
     # Als de update voor een speciale view is (zoals zoekresultaten), sla de cache update over.
     # Deze views beheren hun eigen lijsten of herladen data.
     if ($DomainToUpdate -eq "RECENT_EMAILS_VIEW" -or $DomainToUpdate -eq "SEARCH_RESULTS_VIEW") {
-        Write-Verbose "Cache update overgeslagen voor speciale view: $DomainToUpdate"
+        Write-Verbose (Get-LocStr "updateCache_skippedForSpecialView" -FormatArgs $DomainToUpdate)
         return
     }
 
     $normalizedDomainKey = $DomainToUpdate.ToLowerInvariant()
 
     if (-not $Script:SenderCache.ContainsKey($normalizedDomainKey)) {
-        Write-Warning "Kan domein '$normalizedDomainKey' niet vinden in de cache voor update."
+        Write-Warning (Get-LocStr "updateCache_domainNotFound" -FormatArgs $normalizedDomainKey)
         return
     }
 
     if ($RemoveAllMessagesFromDomain) {
-        Write-Host "Alle berichten van domein '$normalizedDomainKey' worden uit de cache verwijderd."
+        Write-Host (Get-LocStr "updateCache_removingAllFromDomain" -FormatArgs $normalizedDomainKey)
         $Script:SenderCache.Remove($normalizedDomainKey)
     } elseif ($MessageIdToRemove) {
         $messagesList = $Script:SenderCache[$normalizedDomainKey].Messages
@@ -705,14 +705,14 @@ function Update-SenderCache {
         if ($messageToRemove) {
             $messagesList.Remove($messageToRemove)
             $Script:SenderCache[$normalizedDomainKey].Count = $messagesList.Count
-            Write-Host "Bericht met ID '$MessageIdToRemove' verwijderd uit cache voor domein '$normalizedDomainKey'. Nieuw aantal: $($messagesList.Count)."
+            Write-Host (Get-LocStr "updateCache_messageRemovedFromDomain" -FormatArgs $MessageIdToRemove, $normalizedDomainKey, $messagesList.Count)
 
             if ($messagesList.Count -eq 0) {
-                Write-Host "Geen berichten meer voor domein '$normalizedDomainKey'. Domein wordt uit cache verwijderd."
+                Write-Host (Get-LocStr "updateCache_noMessagesLeftForDomain" -FormatArgs $normalizedDomainKey)
                 $Script:SenderCache.Remove($normalizedDomainKey)
             }
         } else {
-            Write-Warning "Kon bericht met ID '$MessageIdToRemove' niet vinden in de cache voor domein '$normalizedDomainKey'."
+            Write-Warning (Get-LocStr "updateCache_messageNotFoundInDomain" -FormatArgs $MessageIdToRemove, $normalizedDomainKey)
         }
     }
     # Sla de cache op na elke update
@@ -740,8 +740,8 @@ function Show-EmailsFromSelectedSender {
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor # Herstel kleuren voor het geval ze anders waren
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
-        Write-Host "Geen e-mails (meer) in de cache voor domein '$domainName'." -ForegroundColor $cgaInstructionFgColor
-        Write-Host "Druk op Escape of Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        Write-Host (Get-LocStr "showEmails_noEmailsInCacheForDomain" -FormatArgs $domainName) -ForegroundColor $cgaInstructionFgColor
+        Write-Host (Get-LocStr "common_pressEscQToReturn") -ForegroundColor $cgaInstructionFgColor
         $readKeyOptionsEmpty = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
         while($true){ $key = $Host.UI.RawUI.ReadKey($readKeyOptionsEmpty); if($key.VirtualKeyCode -eq 27 -or $key.Character.ToString().ToUpper() -eq 'Q'){ break } }
         return # Verlaat Show-EmailsFromSelectedSender
@@ -767,7 +767,7 @@ function Show-EmailsFromSelectedSender {
     # Callback functie om data te herladen (haalt opnieuw uit cache)
     $refreshCallbackForCache = {
         param($CurrentUserId, $CurrentNormalizedDomainKeyForCallback) # Context is de domain key
-        Write-Host "E-maillijst voor domein '$CurrentNormalizedDomainKeyForCallback' herladen uit cache..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+        Write-Host (Get-LocStr "showEmails_reloadingCacheForDomain" -FormatArgs $CurrentNormalizedDomainKeyForCallback) -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
         $reloadedMessagesForView = @()
         if ($Script:SenderCache.ContainsKey($CurrentNormalizedDomainKeyForCallback)) {
             $reloadedCachedDomainEntry = $Script:SenderCache[$CurrentNormalizedDomainKeyForCallback]
@@ -793,7 +793,7 @@ function Show-EmailsFromSelectedSender {
     # Show-StandardizedEmailListView handelt Esc/Q af en keert dan hier terug.
     # Na terugkeer uit Show-StandardizedEmailListView, zal deze functie Show-EmailsFromSelectedSender ook eindigen,
     # en de controle teruggeven aan Show-SenderOverview.
-    Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "E-mails van domein: $($cachedDomainEntry.Name)" -AllowActions $true -DomainToUpdateCache $domainName -RefreshDataCallback $refreshCallbackForCache -RefreshDataCallbackContext $normalizedDomainKey
+    Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle (Get-LocStr "showEmails_titleDomain" -FormatArgs $cachedDomainEntry.Name) -AllowActions $true -DomainToUpdateCache $domainName -RefreshDataCallback $refreshCallbackForCache -RefreshDataCallbackContext $normalizedDomainKey
 }
 
 # NIEUWE GESTANDAARDISEERDE FUNCTIE VOOR E-MAILLIJSTEN
@@ -819,8 +819,8 @@ function Show-StandardizedEmailListView {
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
         Write-Host $ViewTitle -ForegroundColor $cgaInstructionFgColor
-        Write-Host "Geen e-mails gevonden om weer te geven." -ForegroundColor $cgaInstructionFgColor
-        Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+        Write-Host (Get-LocStr "standardizedList_noEmailsToDisplay") -ForegroundColor $cgaInstructionFgColor
+        Write-Host (Get-LocStr "standardizedList_pressEscToReturn") -ForegroundColor $cgaInstructionFgColor
         $readKeyOptionsNoMsg = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
         while ($Host.UI.RawUI.ReadKey($readKeyOptionsNoMsg).VirtualKeyCode -ne 27) {}
         return
@@ -839,11 +839,11 @@ function Show-StandardizedEmailListView {
         $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
 
-        Write-Host "$ViewTitle (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open/Acties)" -ForegroundColor $cgaInstructionFgColor
+        Write-Host "$ViewTitle $((Get-LocStr "standardizedList_titleBase"))" -ForegroundColor $cgaInstructionFgColor
         if ($AllowActions) {
-            Write-Host "Acties: V: Verplaats, Del: Verwijder | A: Selecteer Alles, N: Deselecteer Alles | Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
+            Write-Host (Get-LocStr "standardizedList_actionsAllowed") -ForegroundColor $cgaInstructionFgColor
         } else {
-            Write-Host "A: Selecteer Alles, N: Deselecteer Alles | Esc/Q: Terug" -ForegroundColor $cgaInstructionFgColor
+            Write-Host (Get-LocStr "standardizedList_actionsNotAllowed") -ForegroundColor $cgaInstructionFgColor
         }
 
         # Kolomvolgorde: Datum, Afzender Naam, Onderwerp, Afzender E-mail, Grootte
@@ -854,7 +854,7 @@ function Show-StandardizedEmailListView {
 
         $separatorLine = "-" * ([Math]::Min(145, $Host.UI.RawUI.WindowSize.Width - 2)) # Max 145 tekens breed
         Write-Host $separatorLine
-        Write-Host ($headerFormat -f "#", "Datum", "Afzender Naam", "Onderwerp", "Afzender E-mail", "Grootte (Bytes)")
+        Write-Host ($headerFormat -f (Get-LocStr "standardizedList_headerNumber"), (Get-LocStr "standardizedList_headerDate"), (Get-LocStr "standardizedList_headerSenderName"), (Get-LocStr "standardizedList_headerSubject"), (Get-LocStr "standardizedList_headerSenderEmail"), (Get-LocStr "standardizedList_headerSize"))
         Write-Host $separatorLine
 
         $currentDisplayLines = [Math]::Min($displayLines, $currentMessages.Count)
@@ -862,7 +862,7 @@ function Show-StandardizedEmailListView {
 
         $endDisplayIndex = [Math]::Min(($topDisplayIndex + $currentDisplayLines - 1), ($currentMessages.Count - 1))
         if ($currentMessages.Count -eq 0) {
-             Write-Host "Geen berichten (meer) om weer te geven." -ForegroundColor $cgaInstructionFgColor
+             Write-Host (Get-LocStr "standardizedList_noMoreMessagesToDisplay") -ForegroundColor $cgaInstructionFgColor
         }
 
         for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
@@ -870,18 +870,18 @@ function Show-StandardizedEmailListView {
             $message = $currentMessages[$i]
             $itemNumber = $i + 1
 
-            $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
+            $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { (Get-LocStr "standardizedList_notAvailable") }
 
-            $senderNameDisplay = if ($message.SenderName) { $message.SenderName } else { "N/B" }
+            $senderNameDisplay = if ($message.SenderName) { $message.SenderName } else { (Get-LocStr "standardizedList_notAvailable") }
             if ($senderNameDisplay.Length -gt 22) { $senderNameDisplay = $senderNameDisplay.Substring(0, 19) + "..." } # Inkorten
 
-            $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
+            $subjectDisplay = if ($message.Subject) { $message.Subject } else { (Get-LocStr "standardizedList_noSubject") }
             if ($subjectDisplay.Length -gt 42) { $subjectDisplay = $subjectDisplay.Substring(0, 39) + "..." } # Inkorten
 
-            $senderEmailDisplay = if ($message.SenderEmailAddress) { $message.SenderEmailAddress } else { "N/B" }
+            $senderEmailDisplay = if ($message.SenderEmailAddress) { $message.SenderEmailAddress } else { (Get-LocStr "standardizedList_notAvailable") }
             if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 29) + "..." } # Inkorten
 
-            $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
+            $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { (Get-LocStr "standardizedList_notAvailable") }
 
             $selectionPrefix = "   "
             $currentLineFgColor = $cgaFgColor
@@ -909,7 +909,7 @@ function Show-StandardizedEmailListView {
         Write-Host $separatorLine
         $shownCountStart = if($currentMessages.Count -gt 0) { $topDisplayIndex + 1 } else { 0 }
         $shownCountEnd = if($currentMessages.Count -gt 0) { $endDisplayIndex + 1 } else { 0 }
-        Write-Host ("Getoond: {0}-{1} van {2} | Geselecteerd (Spatie): {3}" -f $shownCountStart, $shownCountEnd, $currentMessages.Count, $spaceSelectedMessageIds.Count) -ForegroundColor $cgaInstructionFgColor
+        Write-Host ((Get-LocStr "standardizedList_footerShownOfSelected") -f $shownCountStart, $shownCountEnd, $currentMessages.Count, $spaceSelectedMessageIds.Count) -ForegroundColor $cgaInstructionFgColor
 
         $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
         $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
