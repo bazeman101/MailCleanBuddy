@@ -1182,9 +1182,9 @@ function Show-EmailBody {
     Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
 
     while ($true) {
-        $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
-        $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
-        if ($keyInfo.VirtualKeyCode -eq 27) { # Escape
+        $readKeyOptionsBody = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown # Andere variabele naam
+        $keyInfoBody = $Host.UI.RawUI.ReadKey($readKeyOptionsBody) # Andere variabele naam
+        if ($keyInfoBody.VirtualKeyCode -eq 27) { # Escape
             break
         }
     }
