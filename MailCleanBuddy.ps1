@@ -898,10 +898,16 @@ function Show-StandardizedEmailListView {
                 if ($AllowActions) {
                     $messagesToActOnList = New-Object System.Collections.Generic.List[PSObject]
                     if ($spaceSelectedMessageIds.Count -gt 0) {
+                        # Prioritize space-selected items
                         $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
-                    } elseif ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
+                    }
+                    
+                    # If no items were processed from space selection (either no space items, or they didn't match/add),
+                    # AND a single item is highlighted, then use the highlighted item.
+                    if ($messagesToActOnList.Count -eq 0 -and $currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
                         $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
                     }
+
                     if ($messagesToActOnList.Count > 0) {
                         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
                         Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Move"
