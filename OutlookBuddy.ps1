@@ -782,8 +782,8 @@ function Show-EmailsFromSelectedSender {
                 }
             }
         } # Einde while ($senderEmailViewLoopActive)
-    } # Einde hoofd while ($Script:SenderCache.ContainsKey... (deze is nu $senderEmailViewLoopActive)
-
+    } # Einde hoofd while ($Script:SenderCache.ContainsKey... 
+    # Na het verlaten van de lussen, keert de functie terug naar Show-SenderOverview, die zijn eigen UI-lus heeft.
 }
 
 # Generieke functie om een lijst van e-mails weer te geven en interactie mogelijk te maken
@@ -1962,7 +1962,7 @@ function Search-Mail {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    
+    # Show-EmailListView keert hier terug. De Read-Host hieronder zorgt voor terugkeer naar hoofdmenu.
     Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
 }
 
