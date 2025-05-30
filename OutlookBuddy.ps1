@@ -170,17 +170,18 @@ function Index-Mailbox {
     $Script:SenderCache = @{} # Reset of initialiseer de cache
 
     try {
-        $baseMessageProperties = "id,subject,sender,receivedDateTime,toRecipients,categories,size" # Standaard 'size' blijft als fallback
+        $baseMessageProperties = "id,subject,sender,receivedDateTime,toRecipients,categories,size,hasAttachments" # Standaard 'size' & 'hasAttachments' blijven als fallback
         $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
-        $expandMessageSizeProperty = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId')"
+        $messageHasAttachMapiPropertyId = "Boolean 0x0E1B" # PR_HASATTACH
+        $expandExtendedProperties = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId' or id eq '$messageHasAttachMapiPropertyId')"
         $messages = $null
 
         # Bouw de parameters voor Get-MgUserMessage
         $getMgUserMessageParams = @{
-            UserId      = $UserId
-            Property    = $baseMessageProperties
-            ExpandProperty = $expandMessageSizeProperty
-            ErrorAction = "Stop"
+            UserId         = $UserId
+            Property       = $baseMessageProperties
+            ExpandProperty = $expandExtendedProperties
+            ErrorAction    = "Stop"
         }
 
         if ($MaxEmailsToIndex -gt 0) {
@@ -233,19 +234,22 @@ function Index-Mailbox {
                 # De oorspronkelijke $senderName ($sender.Name) wordt niet meer direct gebruikt voor de groepering.
 
                 # Bepaal de grootte van het bericht
+                # Bepaal de grootte van het bericht
                 $currentMessageSize = $null
                 $mapiSizeProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
-                    try {
-                        $currentMessageSize = [long]$mapiSizeProp.Value
-                    } catch {
-                        Write-Verbose "Kon MAPI size property waarde '$($mapiSizeProp.Value)' niet converteren naar long voor bericht ID $($message.Id)."
-                    }
-                } elseif ($message.PSObject.Properties['size'] -and $message.size -ne $null) { # Fallback naar standaard 'size'
+                    try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size '$($mapiSizeProp.Value)' niet converteren (Index) ID $($message.Id)." }
+                } elseif ($message.PSObject.Properties['size'] -and $message.size -ne $null) {
                     $currentMessageSize = $message.size
-                    Write-Verbose "MAPI size niet gevonden voor bericht ID $($message.Id), fallback naar standaard 'size' property."
-                } else {
-                    Write-Verbose "Geen grootte (MAPI of standaard) gevonden voor bericht ID $($message.Id)."
+                }
+
+                # Bepaal of er bijlagen zijn
+                $currentHasAttachments = $false # Default
+                $mapiAttachProp = $message.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
+                if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
+                    try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Index) ID $($message.Id)." }
+                } elseif ($message.PSObject.Properties['hasAttachments'] -and $message.hasAttachments -ne $null) {
+                    $currentHasAttachments = $message.hasAttachments
                 }
 
                 # Creëer een object met de details van het huidige bericht
@@ -255,8 +259,9 @@ function Index-Mailbox {
                     ReceivedDateTime = $message.ReceivedDateTime
                     SenderName       = $emailSenderAddressInfo.Name # Naam van de afzender
                     SenderEmailAddress = $senderFullAddress # E-mailadres van de afzender
-                    Size             = $currentMessageSize # Gebruik de (mogelijk lege) opgehaalde grootte
-                    ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
+                    Size             = $currentMessageSize
+                    HasAttachments   = $currentHasAttachments # Nieuw/bijgewerkt veld
+                    ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address }
                     Categories       = $message.Categories
                 }
 
@@ -869,57 +874,57 @@ function Show-StandardizedEmailListView {
                     }
                 }
             }
+            27 { $emailListLoopActive = $false } # Escape
+            46 { # Delete toets
+                if ($AllowActions) {
+                    $messagesToActOnList = New-Object System.Collections.Generic.List[PSObject]
+                    if ($spaceSelectedMessageIds.Count -gt 0) {
+                        $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
+                    } elseif ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
+                        $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
+                    }
+                    if ($messagesToActOnList.Count > 0) {
+                        $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                        Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Delete"
+                        $spaceSelectedMessageIds.Clear()
+                        if ($RefreshDataCallback) {
+                            $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
+                            if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
+                        }
+                    }
+                }
+            }
+            86 { # V - Verplaatsen
+                if ($AllowActions) {
+                    $messagesToActOnList = New-Object System.Collections.Generic.List[PSObject]
+                    if ($spaceSelectedMessageIds.Count -gt 0) {
+                        $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
+                    } elseif ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
+                        $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
+                    }
+                    if ($messagesToActOnList.Count > 0) {
+                        $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
+                        Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Move"
+                        $spaceSelectedMessageIds.Clear()
+                        if ($RefreshDataCallback) {
+                            $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
+                            if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
+                        }
+                    }
+                }
+            }
             default {
                 $charPressed = $keyInfo.Character.ToString().ToUpper()
 
                 if ($charPressed -eq 'A') { # A - Selecteer Alles
                     if ($currentMessages.Count -gt 0) {
-                        # $spaceSelectedMessageIds.Clear() # Optioneel: eerst deselecteren of additief maken? Voor nu, vervang selectie.
-                        foreach ($msg_sa in $currentMessages) { # Gebruik andere variabele naam om conflict te voorkomen
+                        foreach ($msg_sa in $currentMessages) {
                             $spaceSelectedMessageIds.Add($msg_sa.Id) | Out-Null
                         }
                     }
                 } elseif ($charPressed -eq 'N') { # N - Deselecteer Alles (None)
                     $spaceSelectedMessageIds.Clear()
-                }
-                elseif ($AllowActions) {
-                    if ($keyInfo.VirtualKeyCode -eq 86) { # V - Verplaatsen
-                        $messagesToActOnList = New-Object System.Collections.Generic.List[PSObject]
-                        if ($spaceSelectedMessageIds.Count -gt 0) {
-                            $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
-                        } elseif ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
-                            $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
-                        }
-                        if ($messagesToActOnList.Count > 0) {
-                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                            Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Move"
-                            $spaceSelectedMessageIds.Clear()
-                            if ($RefreshDataCallback) {
-                                $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
-                                if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
-                            }
-                        }
-                    } elseif ($keyInfo.VirtualKeyCode -eq 46) { # Delete toets
-                        $messagesToActOnList = New-Object System.Collections.Generic.List[PSObject]
-                        if ($spaceSelectedMessageIds.Count -gt 0) {
-                            $currentMessages | Where-Object { $spaceSelectedMessageIds.Contains($_.Id) } | ForEach-Object { $messagesToActOnList.Add($_.MessageForActions) }
-                        } elseif ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
-                            $messagesToActOnList.Add($currentMessages[$selectedEmailIndex].MessageForActions)
-                        }
-                        if ($messagesToActOnList.Count > 0) {
-                            $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
-                            Perform-ActionOnMultipleEmails -UserId $UserId -MessagesToProcess $messagesToActOnList -DomainToUpdateCache $DomainToUpdateCache -DirectAction "Delete"
-                            $spaceSelectedMessageIds.Clear()
-                            if ($RefreshDataCallback) {
-                                $currentMessages = Invoke-Command -ScriptBlock $RefreshDataCallback -ArgumentList $UserId, $RefreshDataCallbackContext
-                                if (-not $currentMessages -or $currentMessages.Count -eq 0) { $emailListLoopActive = $false } else { $selectedEmailIndex = [Math]::Min($selectedEmailIndex, $currentMessages.Count -1); if ($selectedEmailIndex -lt 0) {$selectedEmailIndex = 0} }
-                            }
-                        }
-                    }
-                }
-
-                if ($keyInfo.VirtualKeyCode -eq 27) { $emailListLoopActive = $false }
-                elseif ($keyInfo.Character.ToString().ToUpper() -eq 'Q') { $emailListLoopActive = $false }
+                } elseif ($charPressed -eq 'Q') { $emailListLoopActive = $false } # Q voor Quit
             }
         }
 
@@ -1764,9 +1769,10 @@ function Search-Mail {
         Write-Host "Zoeken naar e-mails met term: '$searchTerm'..."
         # De -Search parameter gebruikt de Microsoft Search KQL syntax.
         # Standaard zoekt het in meerdere velden zoals onderwerp, body, afzender.
-        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' als fallback
+        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' & 'hasAttachments' als fallback
         $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
-        $expandMessageSizeProperty = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId')"
+        $messageHasAttachMapiPropertyId = "Boolean 0x0E1B" # PR_HASATTACH
+        $expandExtendedProperties = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId' or id eq '$messageHasAttachMapiPropertyId')"
         $foundMessages = $null
 
         $getMgUserMessageParams = @{
@@ -1774,7 +1780,7 @@ function Search-Mail {
             Search         = $searchTerm
             Top            = 100 # Beperk het aantal resultaten
             Property       = $baseMessageProperties
-            ExpandProperty = $expandMessageSizeProperty
+            ExpandProperty = $expandExtendedProperties
             ErrorAction    = "Stop"
         }
 
@@ -1798,11 +1804,17 @@ function Search-Mail {
                 $currentMessageSize = $null
                 $mapiSizeProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
-                    try {
-                        $currentMessageSize = [long]$mapiSizeProp.Value
-                    } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Zoeken) ID $($msg.Id)." }
+                    try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Zoeken) ID $($msg.Id)." }
                 } elseif ($msg.PSObject.Properties['size'] -and $msg.size -ne $null) {
                     $currentMessageSize = $msg.size
+                }
+
+                $currentHasAttachments = $false
+                $mapiAttachProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
+                if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
+                    try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Zoeken) ID $($msg.Id)." }
+                } elseif ($msg.PSObject.Properties['hasAttachments'] -and $msg.hasAttachments -ne $null) {
+                    $currentHasAttachments = $msg.hasAttachments
                 }
 
                 $messagesForView += [PSCustomObject]@{
@@ -1812,6 +1824,7 @@ function Search-Mail {
                     SenderName         = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Name } else { "N/B" }
                     SenderEmailAddress = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Address } else { "N/B" }
                     Size               = $currentMessageSize
+                    HasAttachments     = $currentHasAttachments # Toegevoegd
                     MessageForActions  = $msg # Het originele Graph object
                 }
             }
@@ -1820,10 +1833,8 @@ function Search-Mail {
             $refreshCallback = {
                 param($CurrentUserId, $CallbackContext) # $CallbackContext is een hashtable met Params
                 $CurrentGetMgUserMessageParamsForSearch = $CallbackContext.Params # Bevat al ExpandProperty
-                # $messageSizeMapiPropertyId moet hier opnieuw gedefinieerd worden of uit een hogere scope komen.
-                # Voor eenvoud, definieer opnieuw binnen de callback.
                 $localMessageSizeMapiPropertyId = "Integer 0x0E08"
-
+                $localMessageHasAttachMapiPropertyId = "Boolean 0x0E1B"
 
                 Write-Host "Zoekresultaten herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForSearch -ErrorAction SilentlyContinue
@@ -1838,6 +1849,14 @@ function Search-Mail {
                             $reloadedMessageSize = $rmsg.size
                         }
 
+                        $reloadedHasAttachments = $false
+                        $reloadedMapiAttachProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageHasAttachMapiPropertyId } | Select-Object -First 1
+                        if ($reloadedMapiAttachProp -and $reloadedMapiAttachProp.Value -ne $null) {
+                            try { $reloadedHasAttachments = [System.Convert]::ToBoolean($reloadedMapiAttachProp.Value) } catch {}
+                        } elseif ($rmsg.PSObject.Properties['hasAttachments'] -and $rmsg.hasAttachments -ne $null) {
+                            $reloadedHasAttachments = $rmsg.hasAttachments
+                        }
+
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
                             ReceivedDateTime   = $rmsg.ReceivedDateTime
@@ -1845,6 +1864,7 @@ function Search-Mail {
                             SenderName         = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Name } else { "N/B" }
                             SenderEmailAddress = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Address } else { "N/B" }
                             Size               = $reloadedMessageSize
+                            HasAttachments     = $reloadedHasAttachments # Toegevoegd
                             MessageForActions  = $rmsg
                         }
                     }
@@ -1865,7 +1885,7 @@ function Search-Mail {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
 }
 
 function Show-RecentEmails {
@@ -1880,9 +1900,10 @@ function Show-RecentEmails {
     Write-Host "Ophalen van de laatste 100 e-mails voor $UserId..."
 
     try {
-        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' als fallback
+        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview,size" # Standaard 'size' & 'hasAttachments' als fallback
         $messageSizeMapiPropertyId = "Integer 0x0E08" # PR_MESSAGE_SIZE
-        $expandMessageSizeProperty = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId')"
+        $messageHasAttachMapiPropertyId = "Boolean 0x0E1B" # PR_HASATTACH
+        $expandExtendedProperties = "singleValueExtendedProperties(`$filter=id eq '$messageSizeMapiPropertyId' or id eq '$messageHasAttachMapiPropertyId')"
         $recentMessages = $null
 
         $getMgUserMessageParams = @{
@@ -1890,7 +1911,7 @@ function Show-RecentEmails {
             Top            = 100
             OrderBy        = "receivedDateTime desc"
             Property       = $baseMessageProperties
-            ExpandProperty = $expandMessageSizeProperty
+            ExpandProperty = $expandExtendedProperties
             ErrorAction    = "Stop"
         }
 
@@ -1906,11 +1927,17 @@ function Show-RecentEmails {
                 $currentMessageSize = $null
                 $mapiSizeProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageSizeMapiPropertyId } | Select-Object -First 1
                 if ($mapiSizeProp -and $mapiSizeProp.Value) {
-                    try {
-                        $currentMessageSize = [long]$mapiSizeProp.Value
-                    } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Recente) ID $($msg.Id)." }
+                    try { $currentMessageSize = [long]$mapiSizeProp.Value } catch { Write-Verbose "Kon MAPI size ' $($mapiSizeProp.Value)' niet converteren (Recente) ID $($msg.Id)." }
                 } elseif ($msg.PSObject.Properties['size'] -and $msg.size -ne $null) {
                     $currentMessageSize = $msg.size
+                }
+
+                $currentHasAttachments = $false
+                $mapiAttachProp = $msg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $messageHasAttachMapiPropertyId } | Select-Object -First 1
+                if ($mapiAttachProp -and $mapiAttachProp.Value -ne $null) {
+                    try { $currentHasAttachments = [System.Convert]::ToBoolean($mapiAttachProp.Value) } catch { Write-Verbose "Kon MAPI hasAttach '$($mapiAttachProp.Value)' niet converteren (Recente) ID $($msg.Id)." }
+                } elseif ($msg.PSObject.Properties['hasAttachments'] -and $msg.hasAttachments -ne $null) {
+                    $currentHasAttachments = $msg.hasAttachments
                 }
 
                 $messagesForView += [PSCustomObject]@{
@@ -1920,6 +1947,7 @@ function Show-RecentEmails {
                     SenderName         = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Name } else { "N/B" }
                     SenderEmailAddress = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Address } else { "N/B" }
                     Size               = $currentMessageSize
+                    HasAttachments     = $currentHasAttachments # Toegevoegd
                     MessageForActions  = $msg # Het originele Graph object
                 }
             }
@@ -1928,7 +1956,8 @@ function Show-RecentEmails {
             $refreshCallback = {
                 param($CurrentUserId, $CallbackContext) # $CallbackContext is een hashtable met Params
                 $CurrentGetMgUserMessageParamsForRecent = $CallbackContext.Params # Bevat al ExpandProperty
-                $localMessageSizeMapiPropertyId = "Integer 0x0E08" # Definieer opnieuw voor callback scope
+                $localMessageSizeMapiPropertyId = "Integer 0x0E08"
+                $localMessageHasAttachMapiPropertyId = "Boolean 0x0E1B"
 
                 Write-Host "Recente e-mails herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForRecent -ErrorAction SilentlyContinue
@@ -1943,6 +1972,14 @@ function Show-RecentEmails {
                             $reloadedMessageSize = $rmsg.size
                         }
 
+                        $reloadedHasAttachments = $false
+                        $reloadedMapiAttachProp = $rmsg.SingleValueExtendedProperties | Where-Object { $_.Id -eq $localMessageHasAttachMapiPropertyId } | Select-Object -First 1
+                        if ($reloadedMapiAttachProp -and $reloadedMapiAttachProp.Value -ne $null) {
+                            try { $reloadedHasAttachments = [System.Convert]::ToBoolean($reloadedMapiAttachProp.Value) } catch {}
+                        } elseif ($rmsg.PSObject.Properties['hasAttachments'] -and $rmsg.hasAttachments -ne $null) {
+                            $reloadedHasAttachments = $rmsg.hasAttachments
+                        }
+
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
                             ReceivedDateTime   = $rmsg.ReceivedDateTime
@@ -1950,6 +1987,7 @@ function Show-RecentEmails {
                             SenderName         = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Name } else { "N/B" }
                             SenderEmailAddress = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Address } else { "N/B" }
                             Size               = $reloadedMessageSize
+                            HasAttachments     = $reloadedHasAttachments # Toegevoegd
                             MessageForActions  = $rmsg
                         }
                     }
@@ -1969,7 +2007,7 @@ function Show-RecentEmails {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
 }
 
 function Show-EmailActionsMenu {
@@ -2094,7 +2132,9 @@ function Show-EmailActionsMenu {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu (of vorige menu indien van toepassing)"
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu (of vorige menu indien van toepassing)" # Verwijderd
+    # De functie keert nu direct terug na een actie of als de gebruiker 'Terug' kiest.
+    # De aanroepende functie (Show-StandardizedEmailListView) zal de UI verder afhandelen.
 }
 
 function Ensure-DownloadPath {
@@ -2246,7 +2286,7 @@ function Download-MessageAttachments {
     } catch {
         Write-Error "Fout bij het ophalen of downloaden van bijlagen: $($_.Exception.Message)"
     }
-    Read-Host "Druk op Enter om terug te keren"
+    # Read-Host "Druk op Enter om terug te keren" # Verwijderd, de aanroeper (Show-EmailActionsMenu) handelt de UI af.
 }
 
 function Empty-DeletedItemsFolder {
@@ -2286,7 +2326,7 @@ function Empty-DeletedItemsFolder {
             Write-Error "StackTrace: $($_.ScriptStackTrace)"
         }
     }
-    Read-Host "Druk op Enter om terug te keren naar het hoofdmenu"
+    # Read-Host "Druk op Enter om terug te keren naar het hoofdmenu" # Verwijderd
 }
 
 # Write-CenteredLine is niet meer nodig voor de nieuwe menu-uitlijning.
