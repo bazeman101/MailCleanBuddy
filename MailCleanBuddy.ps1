@@ -1123,7 +1123,7 @@ function Perform-ActionOnMultipleEmails {
         $Host.UI.RawUI.ForegroundColor = $cgaFgColor; $Host.UI.RawUI.BackgroundColor = $cgaBgColor
         Clear-Host
 
-        if ($actionToExecute -like ("1.*" -replace "\*", (Get-LocStr "performActionMultiple_menuItemDelete" -FormatArgs "").Split(" ")[1].TrimEnd("(s)"))) { # Match "1. Verwijder" or "1. Delete"
+        if ($actionToExecute -eq $actionMenuItems[0]) { # Directe vergelijking met "1. Verwijder ..."
             if (Get-Confirmation -PromptMessage (Get-LocStr "confirmation_promptDeleteMultipleEmails" -FormatArgs $MessagesToProcess.Count)) {
                 Write-Host (Get-LocStr "performActionMultiple_startingDelete" -FormatArgs $MessagesToProcess.Count)
                 $processedCount = 0; $errorCount = 0
@@ -1160,7 +1160,7 @@ function Perform-ActionOnMultipleEmails {
                 Write-Host (Get-LocStr "performActionMultiple_deleteCancelled")
                 Start-Sleep -Seconds 1
             }
-        } elseif ($actionToExecute -like ("2.*" -replace "\*", (Get-LocStr "performActionMultiple_menuItemMove" -FormatArgs "").Split(" ")[1])) { # Match "2. Verplaats" or "2. Move"
+        } elseif ($actionToExecute -eq $actionMenuItems[1]) { # Directe vergelijking met "2. Verplaats ..."
             $destinationFolderId = Get-MailFolderSelection -UserId $UserId
             if ($destinationFolderId) {
                 $destinationFolder = Get-MgUserMailFolder -UserId $UserId -MailFolderId $destinationFolderId -ErrorAction SilentlyContinue
@@ -1204,7 +1204,7 @@ function Perform-ActionOnMultipleEmails {
                 Write-Host (Get-LocStr "performActionMultiple_moveNoDestination")
                 Start-Sleep -Seconds 1
             }
-        } elseif ($actionToExecute -like ("3.*" -replace "\*", (Get-LocStr "performActionMultiple_menuItemBack").Split(" ")[1])) { # Match "3. Terug" or "3. Back"
+        } elseif ($actionToExecute -eq $actionMenuItems[2]) { # Directe vergelijking met "3. Terug ..."
             # Do nothing, function will return
         }
     }
