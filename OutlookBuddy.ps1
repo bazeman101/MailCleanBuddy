@@ -2003,55 +2003,95 @@ function Show-RecentEmails {
     Write-Host "Ophalen van de laatste 100 e-mails voor $UserId..."
 
     try {
+        $baseMessageProperties = "id,subject,from,receivedDateTime,hasAttachments,bodyPreview"
+        $sizeProperty = "size" # Let op: kleine letter 's' zoals in de foutmelding
+        $recentMessages = $null
+        $sizePropertySuccessfullyUsed = $true
+
         $getMgUserMessageParams = @{
             UserId      = $UserId
             Top         = 100
             OrderBy     = "receivedDateTime desc"
-            Property    = "id,subject,from,receivedDateTime,size,hasAttachments,bodyPreview"
             ErrorAction = "Stop"
         }
 
-        $recentMessages = Get-MgUserMessage @getMgUserMessageParams
+        try {
+            $getMgUserMessageParams.Property = ($baseMessageProperties + $sizeProperty)
+            Write-Host "Poging 1: Recente e-mails ophalen inclusief '$sizeProperty' eigenschap..."
+            $recentMessages = Get-MgUserMessage @getMgUserMessageParams
+            Write-Host "Recente e-mails succesvol opgehaald met '$sizeProperty' eigenschap."
+        }
+        catch {
+            $errorMessage = $_.Exception.Message
+            if ($_.Exception.InnerException) { $errorMessage = $_.Exception.InnerException.Message }
+
+            if ($errorMessage -like "*Could not find a property named '$sizeProperty' on type 'Microsoft.OutlookServices.Message'*") {
+                Write-Warning "Fout bij ophalen recente e-mails met eigenschap '$sizeProperty': $errorMessage"
+                Write-Host "Poging 2: Recente e-mails ophalen ZONDER '$sizeProperty' eigenschap..."
+                $sizePropertySuccessfullyUsed = $false
+                $getMgUserMessageParams.Property = $baseMessageProperties
+                $recentMessages = Get-MgUserMessage @getMgUserMessageParams
+                Write-Host "Recente e-mails succesvol opgehaald zonder '$sizeProperty'. Grootte-informatie zal ontbreken."
+            }
+            else {
+                throw $_ # Gooi de fout opnieuw als het niet de verwachte 'size' fout is
+            }
+        }
 
         if ($null -eq $recentMessages -or $recentMessages.Count -eq 0) {
             Write-Host "Geen recente e-mails gevonden."
         } else {
             $messagesForView = @()
             foreach ($msg in $recentMessages) {
+                $currentMessageSize = $null
+                if ($sizePropertySuccessfullyUsed -and $msg.PSObject.Properties[$sizeProperty]) { # Controleer of de eigenschap bestaat
+                    $currentMessageSize = $msg.$sizeProperty
+                }
+
                 $messagesForView += [PSCustomObject]@{
                     Id                 = $msg.Id
                     ReceivedDateTime   = $msg.ReceivedDateTime
                     Subject            = $msg.Subject
                     SenderName         = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Name } else { "N/B" }
                     SenderEmailAddress = if ($msg.From -and $msg.From.EmailAddress) { $msg.From.EmailAddress.Address } else { "N/B" }
-                    Size               = if ($msg.PSObject.Properties['Size']) { $msg.Size } else { $null }
+                    Size               = $currentMessageSize
                     MessageForActions  = $msg # Het originele Graph object
                 }
             }
 
             # Callback functie om data te herladen
             $refreshCallback = {
-                param($CurrentUserId, $CurrentGetMgUserMessageParamsForRecent)
+                param($CurrentUserId, $CurrentGetMgUserMessageParamsForRecent, $CurrentSizePropertySuccessfullyUsed) # Voeg $CurrentSizePropertySuccessfullyUsed toe
                 Write-Host "Recente e-mails herladen..." -ForegroundColor $cgaInstructionFgColor; Start-Sleep -Seconds 1
+                # De $CurrentGetMgUserMessageParamsForRecent bevat al de juiste Property selectie (met of zonder size)
                 $reloadedMessages = Get-MgUserMessage @CurrentGetMgUserMessageParamsForRecent -ErrorAction SilentlyContinue
                 $reloadedMessagesForView = @()
                 if ($reloadedMessages) {
                     foreach ($rmsg in $reloadedMessages) {
+                        $reloadedMessageSize = $null
+                        if ($CurrentSizePropertySuccessfullyUsed -and $rmsg.PSObject.Properties[$sizeProperty]) {
+                             $reloadedMessageSize = $rmsg.$sizeProperty
+                        }
                         $reloadedMessagesForView += [PSCustomObject]@{
                             Id                 = $rmsg.Id
                             ReceivedDateTime   = $rmsg.ReceivedDateTime
                             Subject            = $rmsg.Subject
                             SenderName         = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Name } else { "N/B" }
                             SenderEmailAddress = if ($rmsg.From -and $rmsg.From.EmailAddress) { $rmsg.From.EmailAddress.Address } else { "N/B" }
-                            Size               = if ($rmsg.PSObject.Properties['Size']) { $rmsg.Size } else { $null }
+                            Size               = $reloadedMessageSize
                             MessageForActions  = $rmsg
                         }
                     }
                 }
                 return $reloadedMessagesForView
             }
+            # Geef $sizePropertySuccessfullyUsed mee aan de context van de callback
+            $callbackContext = @{
+                Params = $getMgUserMessageParams
+                SizeUsed = $sizePropertySuccessfullyUsed
+            }
 
-            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Laatste 100 e-mails" -AllowActions $true -DomainToUpdateCache "RECENT_EMAILS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $getMgUserMessageParams
+            Show-StandardizedEmailListView -UserId $UserId -Messages $messagesForView -ViewTitle "Laatste 100 e-mails" -AllowActions $true -DomainToUpdateCache "RECENT_EMAILS_VIEW" -RefreshDataCallback $refreshCallback -RefreshDataCallbackContext $callbackContext
         }
     } catch {
         Write-Error "Fout bij het ophalen van recente e-mails: $($_.Exception.Message)"
