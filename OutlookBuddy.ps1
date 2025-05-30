@@ -268,6 +268,7 @@ function Index-Mailbox {
                     MessageId        = $message.Id
                     Subject          = $message.Subject
                     ReceivedDateTime = $message.ReceivedDateTime
+                    SenderName       = $sender.Name # Naam van de afzender
                     SenderEmailAddress = $senderFullAddress # E-mailadres van de afzender
                     Size             = $currentMessageSize # Gebruik de (mogelijk lege) opgehaalde grootte
                     ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
@@ -696,19 +697,22 @@ function Show-EmailsFromSelectedSender {
             Write-Host "E-mails van domein: $($cachedDomainEntry.Name)"
             Write-Host "Aantal in cache: $($cachedDomainEntry.Count)"
             Write-Host "Gebruik ↑/↓ om te navigeren, Enter om te selecteren/lezen, Tab om focus te wisselen, Esc/Q om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            Write-Host "------------------------------------------------------------------------------------------------------------------------" # Iets breder
-            Write-Host ("{0,-5} {1,-40} {2,-35} {3,-20} {4,-15}" -f "#", "Onderwerp", "Afzender E-mail", "Ontvangen Op", "Grootte (Bytes)")
-            Write-Host "------------------------------------------------------------------------------------------------------------------------" # Iets breder
+            Write-Host "------------------------------------------------------------------------------------------------------------------------------------" # Breder voor nieuwe kolommen
+            Write-Host ("{0,-5} {1,-30} {2,-25} {3,-30} {4,-20} {5,-15}" -f "#", "Onderwerp", "Afzender Naam", "Afzender E-mail", "Ontvangen Op", "Grootte (Bytes)")
+            Write-Host "------------------------------------------------------------------------------------------------------------------------------------" # Breder
 
             # Toon e-maillijst
             for ($i = 0; $i -lt $messagesFromDomain.Count; $i++) {
                 $message = $messagesFromDomain[$i]
                 $itemNumber = $i + 1
                 $subjectDisplay = if ($message.Subject) { ($message.Subject | Select-Object -First 1) } else { "(Geen onderwerp)" }
-                if ($subjectDisplay.Length -gt 37) { $subjectDisplay = $subjectDisplay.Substring(0, 37) + "..." }
+                if ($subjectDisplay.Length -gt 27) { $subjectDisplay = $subjectDisplay.Substring(0, 27) + "..." } # Aangepaste breedte
                 
+                $senderNameDisplay = if ($message.SenderName) { $message.SenderName } else { "N/B" }
+                if ($senderNameDisplay.Length -gt 22) { $senderNameDisplay = $senderNameDisplay.Substring(0, 22) + "..." }
+
                 $senderEmailDisplay = if ($message.SenderEmailAddress) { $message.SenderEmailAddress } else { "N/B" }
-                if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 32) + "..." }
+                if ($senderEmailDisplay.Length -gt 27) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 27) + "..." } # Aangepaste breedte
 
                 $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
                 $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
@@ -717,7 +721,8 @@ function Show-EmailsFromSelectedSender {
                 if ($spaceSelectedMessageIds.Contains($message.MessageId)) {
                     $selectionPrefix = "[*]" # Visuele indicator voor spatie-selectie
                 }
-                $lineText = "{0} {1,-5} {2,-37} {3,-35} {4,-20} {5,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $senderEmailDisplay, $receivedDisplay, $sizeDisplay
+                # Nieuwe formattering voor de lijn
+                $lineText = "{0} {1,-5} {2,-27} {3,-25} {4,-30} {5,-20} {6,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $senderNameDisplay, $senderEmailDisplay, $receivedDisplay, $sizeDisplay
                 
                 if ($currentFocusIsEmailList -and $i -eq $selectedEmailIndex) {
                     Write-Host $lineText -ForegroundColor $cgaSelectedFgColor -BackgroundColor $cgaSelectedBgColor
@@ -904,7 +909,7 @@ function Show-RecentEmails {
         Clear-Host
 
         Write-Host "Laatste 100 E-mails (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)" -ForegroundColor $cgaInstructionFgColor
-        Write-Host ("{0} {1,-50} {2,-40} {3,-20}" -f " ", "Onderwerp", "Afzender E-mail", "Ontvangen") # Kolomnaam en breedte aangepast
+        Write-Host ("{0} {1,-40} {2,-30} {3,-35} {4,-20}" -f " ", "Onderwerp", "Afzender Naam", "Afzender E-mail", "Ontvangen") # Kolomnamen en breedtes aangepast
         Write-Host ("-" * ($Host.UI.RawUI.WindowSize.Width -1))
 
 
@@ -914,10 +919,13 @@ function Show-RecentEmails {
         for ($i = $topDisplayIndex; $i -le $endDisplayIndex; $i++) {
             $message = $recentMessages[$i]
             $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
-            if ($subjectDisplay.Length -gt 47) { $subjectDisplay = $subjectDisplay.Substring(0, 47) + "..." } # Aangepaste lengte
+            if ($subjectDisplay.Length -gt 37) { $subjectDisplay = $subjectDisplay.Substring(0, 37) + "..." } # Aangepaste lengte
             
-            $senderDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Address } else { "N/B" } # Gebruik .Address
-            if ($senderDisplay.Length -gt 37) { $senderDisplay = $senderDisplay.Substring(0, 37) + "..." } # Aangepaste lengte
+            $senderNameDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Name } else { "N/B" }
+            if ($senderNameDisplay.Length -gt 27) { $senderNameDisplay = $senderNameDisplay.Substring(0, 27) + "..." }
+
+            $senderEmailDisplay = if ($message.Sender -and $message.Sender.EmailAddress) { $message.Sender.EmailAddress.Address } else { "N/B" }
+            if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 32) + "..." }
 
             $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
 
@@ -942,7 +950,8 @@ function Show-RecentEmails {
             } else {
                  Write-Host $selectionIndicator -NoNewline -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
             }
-            Write-Host (" {0,-50} {1,-40} {2,-20}" -f $subjectDisplay, $senderDisplay, $receivedDisplay) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor # Formattering aangepast
+            # Nieuwe formattering voor de lijn
+            Write-Host (" {0,-40} {1,-30} {2,-35} {3,-20}" -f $subjectDisplay, $senderNameDisplay, $senderEmailDisplay, $receivedDisplay) -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
         }
         
         Write-Host ("-" * ($Host.UI.RawUI.WindowSize.Width -1))
@@ -1983,9 +1992,9 @@ function Search-Mail {
                 Clear-Host
 
                 Write-Host "Zoekresultaten voor '$searchTerm' (Scrollen: PgUp/PgDn/↑/↓, Spatie: Selecteer, Enter: Open, V: Verplaats, Del: Verwijder, Esc/Q: Terug)" -ForegroundColor $cgaInstructionFgColor
-                Write-Host "------------------------------------------------------------------------------------------------------------------------"
-                Write-Host ("{0,-5} {1,-40} {2,-35} {3,-20} {4,-15}" -f "#", "Onderwerp", "Afzender E-mail", "Ontvangen Op", "Grootte (Bytes)")
-                Write-Host "------------------------------------------------------------------------------------------------------------------------"
+                Write-Host "------------------------------------------------------------------------------------------------------------------------------------" # Breder
+                Write-Host ("{0,-5} {1,-30} {2,-25} {3,-30} {4,-20} {5,-15}" -f "#", "Onderwerp", "Afzender Naam", "Afzender E-mail", "Ontvangen Op", "Grootte (Bytes)")
+                Write-Host "------------------------------------------------------------------------------------------------------------------------------------" # Breder
 
                 $endDisplayIndex = [Math]::Min(($topDisplayIndex + $displayLines - 1), ($foundMessages.Count - 1))
 
@@ -1993,10 +2002,13 @@ function Search-Mail {
                     $message = $foundMessages[$i]
                     $itemNumber = $i + 1
                     $subjectDisplay = if ($message.Subject) { $message.Subject } else { "(Geen onderwerp)" }
-                    if ($subjectDisplay.Length -gt 37) { $subjectDisplay = $subjectDisplay.Substring(0, 37) + "..." }
+                    if ($subjectDisplay.Length -gt 27) { $subjectDisplay = $subjectDisplay.Substring(0, 27) + "..." } # Aangepaste breedte
                     
+                    $senderNameDisplay = if ($message.From -and $message.From.EmailAddress) { $message.From.EmailAddress.Name } else { "N/B" }
+                    if ($senderNameDisplay.Length -gt 22) { $senderNameDisplay = $senderNameDisplay.Substring(0, 22) + "..." }
+
                     $senderEmailDisplay = if ($message.From -and $message.From.EmailAddress) { $message.From.EmailAddress.Address } else { "N/B" }
-                    if ($senderEmailDisplay.Length -gt 32) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 32) + "..." }
+                    if ($senderEmailDisplay.Length -gt 27) { $senderEmailDisplay = $senderEmailDisplay.Substring(0, 27) + "..." } # Aangepaste breedte
 
                     $receivedDisplay = if ($message.ReceivedDateTime) { Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm" } else { "N/B" }
                     $sizeDisplay = if ($message.Size -ne $null) { $message.Size } else { "N/B" }
@@ -2015,7 +2027,8 @@ function Search-Mail {
                         $selectionPrefix = if ($selectionPrefix -match "\[\*\]") { ">*]" } else { ">  " } # Combineer cursor met spatie-selectie
                     }
                     
-                    $lineText = "{0} {1,-5} {2,-37} {3,-35} {4,-20} {5,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $senderEmailDisplay, $receivedDisplay, $sizeDisplay
+                    # Nieuwe formattering voor de lijn
+                    $lineText = "{0} {1,-5} {2,-27} {3,-25} {4,-30} {5,-20} {6,-15}" -f $selectionPrefix, "$itemNumber.", $subjectDisplay, $senderNameDisplay, $senderEmailDisplay, $receivedDisplay, $sizeDisplay
                     
                     if ($selectionPrefix -match "\[\*\]" -or $selectionPrefix -match "^\>\*") { # Als het item met spatie is geselecteerd
                         Write-Host ($selectionPrefix.Substring(0,3)) -NoNewline -ForegroundColor $cgaSpaceSelectedPrefixColor -BackgroundColor $currentLineBgColor
@@ -2024,7 +2037,7 @@ function Search-Mail {
                         Write-Host $lineText -ForegroundColor $currentLineFgColor -BackgroundColor $currentLineBgColor
                     }
                 }
-                Write-Host "------------------------------------------------------------------------------------------------------------------------"
+                Write-Host "------------------------------------------------------------------------------------------------------------------------------------" # Breder
                 Write-Host ("Getoond: {0}-{1} van {2} | Geselecteerd (Spatie): {3}" -f ($topDisplayIndex+1), ($endDisplayIndex+1), $foundMessages.Count, $spaceSelectedMessageIds.Count) -ForegroundColor $cgaInstructionFgColor
 
                 $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
