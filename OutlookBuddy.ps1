@@ -1044,10 +1044,13 @@ function Perform-ActionOnMultipleEmails {
                 Write-Progress -Activity "Geselecteerde e-mails verwijderen" -Completed
                 Write-Host "Verwijderen voltooid. $($MessagesToProcess.Count - $errorCount) e-mail(s) verwijderd."
                 if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verwijderd." }
-            } else { Write-Host "Verwijderen geannuleerd." }
-            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {}
-
+                Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+                while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {}
+            } else {
+                Write-Host "Verwijderen geannuleerd."
+                Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen
+                # Keer direct terug, de lijstweergave zal verversen.
+            }
         } elseif ($actionToExecute -like "2. Verplaats*") {
             $destinationFolderId = Get-MailFolderSelection -UserId $UserId
             if ($destinationFolderId) {
@@ -1083,10 +1086,16 @@ function Perform-ActionOnMultipleEmails {
                     Write-Progress -Activity "Geselecteerde e-mails verplaatsen" -Completed
                     Write-Host "Verplaatsen voltooid. $($MessagesToProcess.Count - $errorCount) e-mail(s) verplaatst."
                     if ($errorCount -gt 0) { Write-Warning "$errorCount e-mail(s) konden niet worden verplaatst." }
-                } else { Write-Host "Verplaatsen geannuleerd." }
-            } else { Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)." }
-            Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
-            while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {}
+                    Write-Host "Druk op Escape om terug te keren." -ForegroundColor $cgaInstructionFgColor
+                    while($Host.UI.RawUI.ReadKey([System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown).VirtualKeyCode -ne 27) {}
+                } else {
+                    Write-Host "Verplaatsen geannuleerd."
+                    Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen
+                }
+            } else {
+                Write-Host "Verplaatsen geannuleerd (geen doelmap geselecteerd)."
+                Start-Sleep -Seconds 1 # Korte pauze om de melding te lezen
+            }
         } elseif ($actionToExecute -like "3. Terug*") {
             # Do nothing, function will return
         }
