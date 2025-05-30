@@ -8,7 +8,7 @@
 .PARAMETER MailboxEmail
     The email address of the mailbox to manage.
 .EXAMPLE
-    .\OutlookBuddy.ps1 -MailboxEmail "user@example.com"
+    .\MailCleanBuddy.ps1 -MailboxEmail "user@example.com"
     This command will connect to "user@example.com" and display the main menu.
 .NOTES
     Requires the Microsoft.Graph.Authentication and Microsoft.Graph.Mail modules.
@@ -85,7 +85,7 @@ function Get-CacheFilePath {
         [string]$MailboxEmail
     )
     $safeEmail = $MailboxEmail -replace "[^a-zA-Z0-9.-_]", "_"
-    $cacheFileName = "outlookbuddy_cache_$($safeEmail).json"
+    $cacheFileName = "mailcleanbuddy_cache_$($safeEmail).json"
     $Script:CacheFilePath = Join-Path -Path $PSScriptRoot -ChildPath $cacheFileName
     Write-Verbose "Cache file path set to: $($Script:CacheFilePath)"
 }
@@ -2399,7 +2399,7 @@ function Show-MainMenu {
         Clear-Host
 
         # Menu content
-        $title = "OutlookBuddy - Hoofdmenu voor $UserEmail"
+        $title = "MailCleanBuddy - Hoofdmenu voor $UserEmail"
         $separator = "------------------------------------------"
         $instructionText = "Gebruik ↑/↓ om te selecteren, Enter om te kiezen, Esc om af te sluiten."
 
