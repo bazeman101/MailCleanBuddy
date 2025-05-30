@@ -239,10 +239,10 @@ function Index-Mailbox {
                 Write-Progress -Activity "Mailbox Indexeren" -Status "Verwerken van berichten..." -PercentComplete (($processedCount / $totalMessages) * 100) -CurrentOperation "$processedCount van $totalMessages berichten verwerkt."
             }
 
-            $sender = $message.Sender.EmailAddress
-            if ($sender -and $sender.Address) {
+            $emailSenderAddressInfo = $message.Sender.EmailAddress
+            if ($emailSenderAddressInfo -and $emailSenderAddressInfo.Address) {
                 # Groepeer op domein
-                $senderFullAddress = $sender.Address
+                $senderFullAddress = $emailSenderAddressInfo.Address
                 $domain = ($senderFullAddress -split '@')[1]
                 if ([string]::IsNullOrWhiteSpace($domain)) {
                     $domain = "onbekend_domein" # Fallback voor ongeldige e-mailadressen
@@ -268,7 +268,7 @@ function Index-Mailbox {
                     MessageId        = $message.Id
                     Subject          = $message.Subject
                     ReceivedDateTime = $message.ReceivedDateTime
-                    SenderName       = $sender.Name # Naam van de afzender
+                    SenderName       = $emailSenderAddressInfo.Name # Naam van de afzender
                     SenderEmailAddress = $senderFullAddress # E-mailadres van de afzender
                     Size             = $currentMessageSize # Gebruik de (mogelijk lege) opgehaalde grootte
                     ToRecipients     = $message.ToRecipients | ForEach-Object { $_.EmailAddress.Address } # Sla alleen e-mailadressen op
@@ -2331,12 +2331,11 @@ function Show-MainMenu {
         "1. Overzicht van verzenders (uit cache)",
         "2. Beheer mails van specifieke afzender",    # Werkt op cache
         "3. Zoek naar een mail (live)",              # Zoekt live, niet uit cache
-        "4. Bekijk laatste 100 e-mails (live)",     # Haalt live op
-        "5. Leeg 'Verwijderde Items' (live)",
+        "4. Leeg 'Verwijderde Items' (live)",
         "R. Ververs Index vanaf Server (Forceer Refresh)", # Nieuwe/hernoemde optie
         "Q. Afsluiten"
     )
-    $actionCodes = "1", "2", "3", "4", "5", "R", "Q"
+    $actionCodes = "1", "2", "3", "4", "R", "Q" # Aangepaste actiecodes
 
     $selectedItemIndex = 0
     $menuLoopActive = $true
@@ -2433,8 +2432,7 @@ function Show-MainMenu {
                 "1" { Show-SenderOverview -UserId $UserEmail }
                 "2" { Manage-EmailsBySender -UserId $UserEmail }
                 "3" { Search-Mail -UserId $UserEmail -IsTestRun:$TestRun.IsPresent }
-                "4" { Show-RecentEmails -UserId $UserEmail }
-                "5" { Empty-DeletedItemsFolder -UserId $UserEmail }
+                "4" { Empty-DeletedItemsFolder -UserId $UserEmail } # Was 5
                 "R" {
                     Write-Host "Volledige indexering vanaf server wordt gestart..."
                     Index-Mailbox -UserId $UserEmail # Deze functie slaat de cache zelf op
