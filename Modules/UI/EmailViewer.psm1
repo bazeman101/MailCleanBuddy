@@ -102,11 +102,7 @@ function Show-EmailActionsMenu {
 
             # Date/Time
             Write-Host "🕐 Received     : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
-            try {
-                Write-Host (Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss" -ErrorAction Stop) -ForegroundColor $Global:ColorScheme.Value
-            } catch {
-                Write-Host ($message.ReceivedDateTime.ToString()) -ForegroundColor $Global:ColorScheme.Value
-            }
+            Write-Host (Format-SafeDateTime -DateTimeValue $message.ReceivedDateTime) -ForegroundColor $Global:ColorScheme.Value
 
             # Attachments
             $attachIcon = if ($message.HasAttachments) { "📎 Yes" } else { "○ No" }
@@ -336,11 +332,7 @@ function Show-EmailBody {
         Write-Host $(if ($Message.Subject) { $Message.Subject } else { "(No Subject)" }) -ForegroundColor $Global:ColorScheme.Value
         Write-Host ""
         Write-Host "🕐 Received: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
-        try {
-            Write-Host (Get-Date $Message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss" -ErrorAction Stop) -ForegroundColor $Global:ColorScheme.Value
-        } catch {
-            Write-Host ($Message.ReceivedDateTime.ToString()) -ForegroundColor $Global:ColorScheme.Value
-        }
+        Write-Host (Format-SafeDateTime -DateTimeValue $Message.ReceivedDateTime) -ForegroundColor $Global:ColorScheme.Value
         Write-Host ""
         Write-Host ("-" * 100) -ForegroundColor $Global:ColorScheme.Border
         Write-Host ""
