@@ -35,8 +35,6 @@ function Show-UnsubscribeOpportunities {
 
         Write-Host (Get-LocalizedString "unsubscribe_scanning") -ForegroundColor $Global:ColorScheme.Info
 
-        # Import analytics function
-        Import-Module (Join-Path $PSScriptRoot "..\Analytics\AnalyticsDashboard.psm1") -Force
         $opportunities = Get-UnsubscribeOpportunities -MinEmailCount 3
 
         if ($opportunities.Count -eq 0) {

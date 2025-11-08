@@ -223,9 +223,6 @@ function Build-MailboxIndex {
         [switch]$TestMode
     )
 
-    # Import GraphApiService
-    Import-Module (Join-Path $PSScriptRoot "GraphApiService.psm1") -Force
-
     Write-Host "Starting mailbox indexing for $UserId..." -ForegroundColor Cyan
 
     if ($MaxEmailsToIndex -gt 0) {

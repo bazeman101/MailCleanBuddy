@@ -68,7 +68,8 @@ function Show-StandardizedEmailListView {
         Write-Host ""
 
         if ($AllowActions) {
-            Write-Host "Actions: [Enter] View/Actions | [Space] Select | [A] Select All | [N] Deselect All | [Del] Delete | [V] Move | [Q/Esc] Back" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "Actions: [Enter] View/Actions | [H] Header Analysis | [Space] Select | [A] Select All | [N] Deselect All" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "         [Del] Delete | [V] Move | [Q/Esc] Back" -ForegroundColor $Global:ColorScheme.Info
         } else {
             Write-Host "Navigation: [Up/Down] Navigate | [Q/Esc] Back" -ForegroundColor $Global:ColorScheme.Info
         }
@@ -282,6 +283,23 @@ function Show-StandardizedEmailListView {
                     }
                 } elseif ($charPressed -eq 'N' -and $AllowActions) { # N - Deselect All
                     $spaceSelectedMessageIds.Clear()
+                } elseif ($charPressed -eq 'H' -and $AllowActions) { # H - Header Analysis
+                    if ($currentMessages.Count -gt 0 -and $selectedEmailIndex -ge 0 -and $selectedEmailIndex -lt $currentMessages.Count) {
+                        # Prepare display items for header analysis
+                        $displayItems = @()
+                        foreach ($msg in $currentMessages) {
+                            $subject = if ($msg.Subject -and $msg.Subject.Length -gt 50) { $msg.Subject.Substring(0, 47) + "..." } elseif ($msg.Subject) { $msg.Subject } else { "(No Subject)" }
+                            $sender = if ($msg.SenderEmailAddress -and $msg.SenderEmailAddress.Length -gt 30) { $msg.SenderEmailAddress.Substring(0, 27) + "..." } elseif ($msg.SenderEmailAddress) { $msg.SenderEmailAddress } else { "N/A" }
+
+                            $displayItems += [PSCustomObject]@{
+                                DisplayText = "$subject | From: $sender"
+                                Message = $msg
+                            }
+                        }
+
+                        # Show header analysis starting from selected email
+                        Show-HeaderAnalysisView -UserEmail $UserEmail -AllMessages $displayItems -CurrentIndex $selectedEmailIndex
+                    }
                 } elseif ($charPressed -eq 'Q') {
                     $emailListLoopActive = $false
                 }

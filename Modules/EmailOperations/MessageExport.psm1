@@ -266,9 +266,6 @@ function Export-BulkEmails {
     $odataFilter = if ($filters.Count -gt 0) { $filters -join ' and ' } else { $null }
 
     try {
-        # Import GraphApiService
-        Import-Module (Join-Path $PSScriptRoot "..\Core\GraphApiService.psm1") -Force
-
         Write-Host "`nFetching messages..." -ForegroundColor Cyan
 
         $params = @{

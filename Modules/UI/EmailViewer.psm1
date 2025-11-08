@@ -53,8 +53,8 @@ function Show-EmailActionsMenu {
         while ($actionLoopActive) {
             Clear-Host
 
-            # Display email details
-            Write-Host "`nEmail Details" -ForegroundColor $Global:ColorScheme.Highlight
+            # Display email details with enhanced formatting
+            Write-Host "`n📧 Email Details" -ForegroundColor $Global:ColorScheme.Highlight
 
             # Show navigation info if available
             if ($AllMessages.Count -gt 0 -and $CurrentIndex -ge 0) {
@@ -71,17 +71,21 @@ function Show-EmailActionsMenu {
             Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
             Write-Host ""
 
-            Write-Host "Subject      : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
-            Write-Host $(if ($message.Subject) { $message.Subject } else { "(No Subject)" }) -ForegroundColor $Global:ColorScheme.Value
+            # Subject with importance indicator
+            $importanceIcon = if ($message.Importance -eq "high") { "⚠️ " } elseif ($message.Importance -eq "low") { "ℹ️ " } else { "" }
+            Write-Host "📝 Subject      : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+            Write-Host "$importanceIcon$(if ($message.Subject) { $message.Subject } else { '(No Subject)' })" -ForegroundColor $Global:ColorScheme.Value
 
-            Write-Host "From         : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+            # From
+            Write-Host "👤 From         : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
             if ($message.From -and $message.From.EmailAddress) {
                 Write-Host "$($message.From.EmailAddress.Name) <$($message.From.EmailAddress.Address)>" -ForegroundColor $Global:ColorScheme.Value
             } else {
                 Write-Host "N/A" -ForegroundColor $Global:ColorScheme.Value
             }
 
-            Write-Host "To           : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+            # To
+            Write-Host "📨 To           : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
             if ($message.ToRecipients) {
                 $toList = ($message.ToRecipients | ForEach-Object { $_.EmailAddress.Address }) -join ", "
                 Write-Host $toList -ForegroundColor $Global:ColorScheme.Value
@@ -89,24 +93,30 @@ function Show-EmailActionsMenu {
                 Write-Host "N/A" -ForegroundColor $Global:ColorScheme.Value
             }
 
+            # CC (if present)
             if ($message.CcRecipients -and $message.CcRecipients.Count -gt 0) {
-                Write-Host "CC           : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+                Write-Host "📋 CC           : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
                 $ccList = ($message.CcRecipients | ForEach-Object { $_.EmailAddress.Address }) -join ", "
                 Write-Host $ccList -ForegroundColor $Global:ColorScheme.Value
             }
 
-            Write-Host "Received     : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+            # Date/Time
+            Write-Host "🕐 Received     : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
             try {
                 Write-Host (Get-Date $message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss" -ErrorAction Stop) -ForegroundColor $Global:ColorScheme.Value
             } catch {
                 Write-Host ($message.ReceivedDateTime.ToString()) -ForegroundColor $Global:ColorScheme.Value
             }
 
-            Write-Host "Has Attachments: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
-            Write-Host $(if ($message.HasAttachments) { "Yes" } else { "No" }) -ForegroundColor $Global:ColorScheme.Value
+            # Attachments
+            $attachIcon = if ($message.HasAttachments) { "📎 Yes" } else { "○ No" }
+            Write-Host "📎 Attachments  : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+            Write-Host $attachIcon -ForegroundColor $(if ($message.HasAttachments) { $Global:ColorScheme.Warning } else { $Global:ColorScheme.Value })
 
-            Write-Host "Is Read      : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
-            Write-Host $(if ($message.IsRead) { "Yes" } else { "No" }) -ForegroundColor $Global:ColorScheme.Value
+            # Read status
+            $readIcon = if ($message.IsRead) { "✓ Read" } else { "○ Unread" }
+            Write-Host "👁️  Status       : " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+            Write-Host $readIcon -ForegroundColor $(if ($message.IsRead) { $Global:ColorScheme.Success } else { $Global:ColorScheme.Warning })
 
             Write-Host ""
             Write-Host ("-" * 100) -ForegroundColor $Global:ColorScheme.Border
@@ -148,24 +158,28 @@ function Show-EmailActionsMenu {
                 $displayText += "`n`n... (Body truncated. Press [B] to view full body)"
             }
 
-            Write-Host "Body:" -ForegroundColor $Global:ColorScheme.Label
+            Write-Host "📄 Body Preview:" -ForegroundColor $Global:ColorScheme.Label
             Write-Host $displayText -ForegroundColor $Global:ColorScheme.Normal
 
             Write-Host ""
             Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
             Write-Host ""
 
-            # Show available actions
-            Write-Host "Available Actions:" -ForegroundColor $Global:ColorScheme.SectionHeader
-            Write-Host "  [B] View Full Body" -ForegroundColor $Global:ColorScheme.Info
-            Write-Host "  [O] Open in Browser (HTML)" -ForegroundColor $Global:ColorScheme.Info
-            Write-Host "  [H] View Email Headers" -ForegroundColor $Global:ColorScheme.Info
+            # Show available actions with icons
+            Write-Host "⚡ Available Actions:" -ForegroundColor $Global:ColorScheme.SectionHeader
+            Write-Host "  [B] 📖 View Full Body" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "  [O] 🌐 Open in Browser (HTML)" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "  [H] 🔒 Header Analysis (Security)" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "  [R] 📋 Raw Email Headers" -ForegroundColor $Global:ColorScheme.Info
             if ($message.HasAttachments) {
-                Write-Host "  [D] Download Attachments" -ForegroundColor $Global:ColorScheme.Info
+                Write-Host "  [D] 💾 Download Attachments" -ForegroundColor $Global:ColorScheme.Info
             }
-            Write-Host "  [Del] Delete Email" -ForegroundColor $Global:ColorScheme.Warning
-            Write-Host "  [V] Move to Folder" -ForegroundColor $Global:ColorScheme.Info
-            Write-Host "  [Q/Esc] Back" -ForegroundColor $Global:ColorScheme.Muted
+            Write-Host "  [Del] 🗑️  Delete Email" -ForegroundColor $Global:ColorScheme.Warning
+            Write-Host "  [V] 📁 Move to Folder" -ForegroundColor $Global:ColorScheme.Info
+            if ($AllMessages.Count -gt 0 -and $CurrentIndex -ge 0) {
+                Write-Host "  [←/→] Navigate to Previous/Next Email" -ForegroundColor $Global:ColorScheme.Info
+            }
+            Write-Host "  [Q/Esc] ⬅️  Back" -ForegroundColor $Global:ColorScheme.Muted
             Write-Host ""
 
             # Read key
@@ -249,7 +263,33 @@ function Show-EmailActionsMenu {
                         Show-EmailBody -UserEmail $UserEmail -Message $message
                     } elseif ($charPressed -eq 'O') { # Open in Browser
                         Show-EmailInBrowser -UserEmail $UserEmail -MessageId $MessageId
-                    } elseif ($charPressed -eq 'H') { # View Headers
+                    } elseif ($charPressed -eq 'H') { # Header Analysis (Security)
+                        # Prepare display items for header analysis navigation
+                        $displayItems = @()
+                        foreach ($msg in $AllMessages) {
+                            # Get the message ID
+                            $msgId = $null
+                            if (-not [string]::IsNullOrWhiteSpace($msg.Id)) {
+                                $msgId = $msg.Id
+                            } elseif (-not [string]::IsNullOrWhiteSpace($msg.MessageId)) {
+                                $msgId = $msg.MessageId
+                            }
+
+                            if (-not [string]::IsNullOrWhiteSpace($msgId)) {
+                                $subject = if ($msg.Subject -and $msg.Subject.Length -gt 50) { $msg.Subject.Substring(0, 47) + "..." } elseif ($msg.Subject) { $msg.Subject } else { "(No Subject)" }
+                                $sender = if ($msg.SenderEmailAddress -and $msg.SenderEmailAddress.Length -gt 30) { $msg.SenderEmailAddress.Substring(0, 27) + "..." } elseif ($msg.SenderEmailAddress) { $msg.SenderEmailAddress } else { "N/A" }
+
+                                $displayItems += [PSCustomObject]@{
+                                    DisplayText = "$subject | From: $sender"
+                                    Message = $msg
+                                }
+                            }
+                        }
+
+                        if ($displayItems.Count -gt 0) {
+                            Show-HeaderAnalysisView -UserEmail $UserEmail -AllMessages $displayItems -CurrentIndex $CurrentIndex
+                        }
+                    } elseif ($charPressed -eq 'R') { # Raw Headers
                         Show-EmailHeaders -UserEmail $UserEmail -MessageId $MessageId
                     } elseif ($charPressed -eq 'D' -and $message.HasAttachments) { # Download Attachments
                         Show-AttachmentDownloadMenu -UserEmail $UserEmail -MessageId $MessageId
@@ -288,14 +328,14 @@ function Show-EmailBody {
 
     try {
         Clear-Host
-        Write-Host "`nEmail Body" -ForegroundColor $Global:ColorScheme.Highlight
+        Write-Host "`n📖 Email Body - Full View" -ForegroundColor $Global:ColorScheme.Highlight
         Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
         Write-Host ""
 
-        Write-Host "Subject: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+        Write-Host "📝 Subject: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
         Write-Host $(if ($Message.Subject) { $Message.Subject } else { "(No Subject)" }) -ForegroundColor $Global:ColorScheme.Value
         Write-Host ""
-        Write-Host "Received: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
+        Write-Host "🕐 Received: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
         try {
             Write-Host (Get-Date $Message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss" -ErrorAction Stop) -ForegroundColor $Global:ColorScheme.Value
         } catch {
@@ -352,7 +392,7 @@ function Show-EmailBody {
         Write-Host ""
         Write-Host ("-" * 100) -ForegroundColor $Global:ColorScheme.Border
         Write-Host ""
-        Write-Host "Press Q or Esc to return" -ForegroundColor $Global:ColorScheme.Info
+        Write-Host "⬅️  Press Q or Esc to return" -ForegroundColor $Global:ColorScheme.Info
 
         # Wait for key
         while ($true) {
@@ -550,6 +590,23 @@ function Show-EmailInBrowser {
     )
 
     try {
+        # Cleanup old temporary HTML files (older than 1 hour)
+        try {
+            $tempPath = [System.IO.Path]::GetTempPath()
+            $oldTempFiles = Get-ChildItem -Path $tempPath -Filter "MailCleanBuddy_Email_*.html" -ErrorAction SilentlyContinue |
+                Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) }
+
+            foreach ($oldFile in $oldTempFiles) {
+                try {
+                    Remove-Item -Path $oldFile.FullName -Force -ErrorAction SilentlyContinue
+                } catch {
+                    # Silently ignore if file is in use
+                }
+            }
+        } catch {
+            # Silently ignore cleanup errors
+        }
+
         Write-Host "`nFetching email content..." -ForegroundColor $Global:ColorScheme.Info
 
         # Fetch message with full body content
@@ -651,7 +708,8 @@ function Show-EmailInBrowser {
 
         Write-Host ""
         Write-Host "Email opened in browser." -ForegroundColor $Global:ColorScheme.Success
-        Write-Host "The temporary file will be kept for your reference." -ForegroundColor $Global:ColorScheme.Info
+        Write-Host "Temporary file: $tempFile" -ForegroundColor $Global:ColorScheme.Muted
+        Write-Host "Note: Temporary HTML files older than 1 hour are automatically cleaned up." -ForegroundColor $Global:ColorScheme.Info
         Write-Host ""
         Read-Host "Press Enter to continue"
     }
