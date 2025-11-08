@@ -89,24 +89,7 @@ function Show-StandardizedEmailListView {
             $message = $currentMessages[$i]
             $itemNumber = $i + 1
 
-            $receivedDisplay = if ($message.ReceivedDateTime) {
-                try {
-                    # Handle both DateTime objects and string representations
-                    if ($message.ReceivedDateTime -is [DateTime]) {
-                        $message.ReceivedDateTime.ToString("yyyy-MM-dd HH:mm")
-                    } else {
-                        # Parse as culture-invariant ISO 8601 format
-                        ([DateTime]::Parse($message.ReceivedDateTime, [System.Globalization.CultureInfo]::InvariantCulture)).ToString("yyyy-MM-dd HH:mm")
-                    }
-                } catch {
-                    # Fallback: try to get string representation
-                    if ($message.ReceivedDateTime.ToString) {
-                        $message.ReceivedDateTime.ToString()
-                    } else {
-                        "N/A"
-                    }
-                }
-            } else { "N/A" }
+            $receivedDisplay = Format-SafeDateTime -DateTimeValue $message.ReceivedDateTime -ShortFormat
 
             $senderDisplay = if ($message.SenderEmailAddress) {
                 $message.SenderEmailAddress
@@ -345,19 +328,7 @@ function Show-EmailDetails {
     Write-Host ""
 
     Write-Host "Date: " -NoNewline -ForegroundColor $Global:ColorScheme.Label
-    if ($Message.ReceivedDateTime) {
-        try {
-            if ($Message.ReceivedDateTime -is [DateTime]) {
-                Write-Host $Message.ReceivedDateTime.ToString("yyyy-MM-dd HH:mm:ss") -ForegroundColor $Global:ColorScheme.Value
-            } else {
-                Write-Host (Get-Date $Message.ReceivedDateTime -Format "yyyy-MM-dd HH:mm:ss" -ErrorAction Stop) -ForegroundColor $Global:ColorScheme.Value
-            }
-        } catch {
-            Write-Host ($Message.ReceivedDateTime.ToString()) -ForegroundColor $Global:ColorScheme.Value
-        }
-    } else {
-        Write-Host "N/A" -ForegroundColor $Global:ColorScheme.Value
-    }
+    Write-Host (Format-SafeDateTime -DateTimeValue $Message.ReceivedDateTime) -ForegroundColor $Global:ColorScheme.Value
     Write-Host ""
 
     if ($Message.BodyPreview) {

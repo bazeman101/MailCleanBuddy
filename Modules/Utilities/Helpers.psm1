@@ -100,6 +100,49 @@ function Convert-HtmlToPlainText {
 
 <#
 .SYNOPSIS
+    Formats a DateTime value to a consistent string format
+.PARAMETER DateTimeValue
+    The DateTime value to format
+.PARAMETER Format
+    Format string (default: "yyyy-MM-dd HH:mm:ss")
+.PARAMETER ShortFormat
+    Use short format (yyyy-MM-dd HH:mm)
+.OUTPUTS
+    Formatted date string or "N/A" if parsing fails
+#>
+function Format-SafeDateTime {
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $false)]
+        $DateTimeValue,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Format = "yyyy-MM-dd HH:mm:ss",
+
+        [Parameter(Mandatory = $false)]
+        [switch]$ShortFormat
+    )
+
+    if ($ShortFormat) {
+        $Format = "yyyy-MM-dd HH:mm"
+    }
+
+    $dateTime = ConvertTo-SafeDateTime -DateTimeValue $DateTimeValue -DefaultValue $null
+
+    if ($null -eq $dateTime) {
+        return "N/A"
+    }
+
+    try {
+        return $dateTime.ToString($Format)
+    } catch {
+        Write-Verbose "Failed to format DateTime: $($_.Exception.Message)"
+        return "N/A"
+    }
+}
+
+<#
+.SYNOPSIS
     Gets a Yes/No confirmation from user
 .PARAMETER Prompt
     The confirmation prompt
@@ -235,4 +278,4 @@ function Get-UniqueFilePath {
     return $newFilePath
 }
 
-Export-ModuleMember -Function ConvertTo-SafeDateTime, Convert-HtmlToPlainText, Get-UserConfirmation, Ensure-DirectoryExists, Get-SafeFilename, Format-FileSize, Get-UniqueFilePath
+Export-ModuleMember -Function ConvertTo-SafeDateTime, Format-SafeDateTime, Convert-HtmlToPlainText, Get-UserConfirmation, Ensure-DirectoryExists, Get-SafeFilename, Format-FileSize, Get-UniqueFilePath

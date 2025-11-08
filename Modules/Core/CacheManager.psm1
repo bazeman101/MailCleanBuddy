@@ -9,6 +9,15 @@
 
 $Script:SenderCache = @{}
 $Script:CacheFilePath = $null
+$Script:CacheMetadata = @{
+    Version = "1.0"
+    Created = $null
+    LastUpdated = $null
+    MailboxEmail = $null
+    MessageCount = 0
+    DomainCount = 0
+    IsValid = $false
+}
 
 <#
 .SYNOPSIS
@@ -70,7 +79,34 @@ function Import-LocalCache {
         $jsonContent = Get-Content -Path $Script:CacheFilePath -Raw -ErrorAction Stop
         Write-Progress -Activity "Loading Cache" -Status "Parsing JSON..." -PercentComplete 30
 
-        $loadedCache = ConvertFrom-Json -InputObject $jsonContent -AsHashtable -ErrorAction Stop
+        $loadedData = ConvertFrom-Json -InputObject $jsonContent -AsHashtable -ErrorAction Stop
+
+        # Load metadata if present
+        if ($loadedData.ContainsKey('Metadata')) {
+            $Script:CacheMetadata = $loadedData.Metadata
+            Write-Verbose "Cache metadata loaded: Version $($Script:CacheMetadata.Version), Created: $($Script:CacheMetadata.Created)"
+        }
+
+        # Get cache data
+        $loadedCache = if ($loadedData.ContainsKey('Data')) { $loadedData.Data } else { $loadedData }
+
+        Write-Progress -Activity "Loading Cache" -Status "Validating cache..." -PercentComplete 50
+
+        # Validate cache integrity
+        if (-not (Test-CacheIntegrity -CacheData $loadedCache)) {
+            Write-Warning "Cache integrity check failed. Cache may be corrupted."
+            $Script:CacheMetadata.IsValid = $false
+        } else {
+            $Script:CacheMetadata.IsValid = $true
+        }
+
+        # Check cache age
+        $cacheAge = Get-CacheAge
+        $maxAge = Get-ConfigValue -Path "Cache.MaxCacheAgeHours" -DefaultValue 48
+        if ($cacheAge -gt $maxAge) {
+            Write-Warning "Cache is $cacheAge hours old (max: $maxAge hours). Consider rebuilding."
+        }
+
         Write-Progress -Activity "Loading Cache" -Status "Processing messages..." -PercentComplete 60
 
         # Convert to proper structure
@@ -87,12 +123,17 @@ function Import-LocalCache {
             }
         }
 
+        # Update metadata
+        $Script:CacheMetadata.DomainCount = $Script:SenderCache.Keys.Count
+        $Script:CacheMetadata.MessageCount = ($Script:SenderCache.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
+
         Write-Progress -Activity "Loading Cache" -Completed
-        Write-Host "Local cache loaded successfully. $($Script:SenderCache.Keys.Count) domains found." -ForegroundColor Green
+        Write-Host "Local cache loaded successfully. $($Script:SenderCache.Keys.Count) domains, $($Script:CacheMetadata.MessageCount) messages found." -ForegroundColor Green
         return $true
     } catch {
         Write-Warning "Error loading cache: $($_.Exception.Message). Cache will be ignored."
         $Script:SenderCache = @{}
+        $Script:CacheMetadata.IsValid = $false
         Write-Progress -Activity "Loading Cache" -Completed
         return $false
     }
@@ -125,9 +166,25 @@ function Export-LocalCache {
 
     try {
         Write-Host "Saving local cache to: $Script:CacheFilePath" -ForegroundColor Cyan
-        $jsonContent = ConvertTo-Json -InputObject $Script:SenderCache -Depth 10 -ErrorAction Stop
+
+        # Update metadata
+        $Script:CacheMetadata.LastUpdated = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+        if (-not $Script:CacheMetadata.Created) {
+            $Script:CacheMetadata.Created = $Script:CacheMetadata.LastUpdated
+        }
+        $Script:CacheMetadata.DomainCount = $Script:SenderCache.Keys.Count
+        $Script:CacheMetadata.MessageCount = ($Script:SenderCache.Values | ForEach-Object { $_.Count } | Measure-Object -Sum).Sum
+        $Script:CacheMetadata.IsValid = $true
+
+        # Create combined object with metadata and data
+        $cacheWithMetadata = @{
+            Metadata = $Script:CacheMetadata
+            Data = $Script:SenderCache
+        }
+
+        $jsonContent = ConvertTo-Json -InputObject $cacheWithMetadata -Depth 10 -ErrorAction Stop
         Set-Content -Path $Script:CacheFilePath -Value $jsonContent -ErrorAction Stop
-        Write-Host "Local cache saved successfully." -ForegroundColor Green
+        Write-Host "Local cache saved successfully ($($Script:CacheMetadata.MessageCount) messages, $($Script:CacheMetadata.DomainCount) domains)." -ForegroundColor Green
         return $true
     } catch {
         Write-Error "Error saving cache: $($_.Exception.Message)"
@@ -352,5 +409,130 @@ function Build-MailboxIndex {
     }
 }
 
+<#
+.SYNOPSIS
+    Tests cache integrity
+#>
+function Test-CacheIntegrity {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $false)]
+        [hashtable]$CacheData
+    )
+
+    if (-not $CacheData) {
+        $CacheData = $Script:SenderCache
+    }
+
+    try {
+        # Check if cache has entries
+        if ($CacheData.Keys.Count -eq 0) {
+            Write-Verbose "Cache is empty"
+            return $true  # Empty cache is valid
+        }
+
+        # Check each domain entry
+        foreach ($domain in $CacheData.Keys) {
+            $entry = $CacheData[$domain]
+
+            # Validate structure
+            if (-not $entry.ContainsKey('Name') -or -not $entry.ContainsKey('Count') -or -not $entry.ContainsKey('Messages')) {
+                Write-Warning "Invalid cache entry structure for domain: $domain"
+                return $false
+            }
+
+            # Validate message count matches
+            $actualCount = if ($entry.Messages) { $entry.Messages.Count } else { 0 }
+            if ($entry.Count -ne $actualCount) {
+                Write-Warning "Message count mismatch for domain '$domain': Expected $($entry.Count), Found $actualCount"
+                # Auto-fix: update count
+                $entry.Count = $actualCount
+            }
+
+            # Validate messages
+            foreach ($msg in $entry.Messages) {
+                if (-not $msg.MessageId -and -not $msg.Id) {
+                    Write-Warning "Message missing ID in domain: $domain"
+                    return $false
+                }
+            }
+        }
+
+        return $true
+    } catch {
+        Write-Warning "Cache integrity check failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets cache age in hours
+#>
+function Get-CacheAge {
+    [CmdletBinding()]
+    param()
+
+    try {
+        if (-not $Script:CacheMetadata.LastUpdated) {
+            # Try to get from file timestamp
+            if ($Script:CacheFilePath -and (Test-Path $Script:CacheFilePath)) {
+                $fileInfo = Get-Item $Script:CacheFilePath
+                $ageTimespan = (Get-Date) - $fileInfo.LastWriteTime
+                return [Math]::Round($ageTimespan.TotalHours, 2)
+            }
+            return 999  # Unknown age
+        }
+
+        $lastUpdate = [DateTime]::Parse($Script:CacheMetadata.LastUpdated)
+        $ageTimespan = (Get-Date) - $lastUpdate
+        return [Math]::Round($ageTimespan.TotalHours, 2)
+    } catch {
+        Write-Verbose "Error calculating cache age: $($_.Exception.Message)"
+        return 999
+    }
+}
+
+<#
+.SYNOPSIS
+    Gets cache metadata
+#>
+function Get-CacheMetadata {
+    return $Script:CacheMetadata.Clone()
+}
+
+<#
+.SYNOPSIS
+    Checks if cache needs refresh
+#>
+function Test-CacheNeedsRefresh {
+    [CmdletBinding()]
+    param()
+
+    # Check if auto-refresh is enabled
+    $autoRefreshEnabled = Get-ConfigValue -Path "Cache.AutoRefreshEnabled" -DefaultValue $true
+    if (-not $autoRefreshEnabled) {
+        return $false
+    }
+
+    # Check cache age
+    $cacheAge = Get-CacheAge
+    $refreshInterval = Get-ConfigValue -Path "Cache.AutoRefreshIntervalHours" -DefaultValue 24
+
+    if ($cacheAge -gt $refreshInterval) {
+        Write-Verbose "Cache age ($cacheAge hours) exceeds refresh interval ($refreshInterval hours)"
+        return $true
+    }
+
+    # Check cache validity
+    if (-not $Script:CacheMetadata.IsValid) {
+        Write-Verbose "Cache is marked as invalid"
+        return $true
+    }
+
+    return $false
+}
+
 Export-ModuleMember -Function Get-CacheFilePath, Import-LocalCache, Export-LocalCache, Get-SenderCache, Set-SenderCache, `
-                              Update-CacheAfterAction, Clear-SenderCache, Build-MailboxIndex
+                              Update-CacheAfterAction, Clear-SenderCache, Build-MailboxIndex, `
+                              Test-CacheIntegrity, Get-CacheAge, Get-CacheMetadata, Test-CacheNeedsRefresh
