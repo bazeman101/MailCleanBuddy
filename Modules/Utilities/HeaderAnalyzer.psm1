@@ -189,7 +189,7 @@ function Analyze-EmailHeaders {
 function Show-HeaderAnalyzer {
     <#
     .SYNOPSIS
-        Interactive header analyzer interface
+        Interactive header analyzer interface with arrow-key navigation
     .PARAMETER UserEmail
         User email address
     #>
@@ -200,20 +200,15 @@ function Show-HeaderAnalyzer {
     )
 
     try {
-        Clear-Host
-
-        $title = Get-LocalizedString "header_title" -FormatArgs @($UserEmail)
-        Write-Host "`n$title" -ForegroundColor $Global:ColorScheme.Highlight
-        Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
-        Write-Host ""
-
-        Write-Host (Get-LocalizedString "header_description") -ForegroundColor $Global:ColorScheme.Info
-        Write-Host ""
-
         # Get cache to show email list
         $cache = Get-SenderCache
 
         if (-not $cache -or $cache.Count -eq 0) {
+            Clear-Host
+            $title = Get-LocalizedString "header_title" -FormatArgs @($UserEmail)
+            Write-Host "`n$title" -ForegroundColor $Global:ColorScheme.Highlight
+            Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
+            Write-Host ""
             Write-Host "No cache data found. Please build the mailbox cache first." -ForegroundColor $Global:ColorScheme.Warning
             Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
             return
@@ -240,6 +235,11 @@ function Show-HeaderAnalyzer {
         }
 
         if ($allMessages.Count -eq 0) {
+            Clear-Host
+            $title = Get-LocalizedString "header_title" -FormatArgs @($UserEmail)
+            Write-Host "`n$title" -ForegroundColor $Global:ColorScheme.Highlight
+            Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
+            Write-Host ""
             Write-Host "No messages found in cache." -ForegroundColor $Global:ColorScheme.Warning
             Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
             return
@@ -248,142 +248,238 @@ function Show-HeaderAnalyzer {
         # Sort by received date (newest first)
         $allMessages = $allMessages | Sort-Object ReceivedDateTime -Descending
 
-        # Display message list with pagination
-        Write-Host "Recent emails (showing first 20):" -ForegroundColor $Global:ColorScheme.SectionHeader
-        Write-Host ""
+        # Prepare display items for selection
+        $displayItems = @()
+        foreach ($msg in $allMessages) {
+            $subject = if ($msg.Subject.Length -gt 50) { $msg.Subject.Substring(0, 47) + "..." } else { $msg.Subject }
+            $sender = if ($msg.SenderEmailAddress.Length -gt 30) { $msg.SenderEmailAddress.Substring(0, 27) + "..." } else { $msg.SenderEmailAddress }
 
-        $displayMessages = $allMessages | Select-Object -First 20
-        $index = 1
-
-        $format = "{0,-4} {1,-50} {2,-30}"
-        Write-Host ($format -f "#", "Subject", "From") -ForegroundColor $Global:ColorScheme.Header
-        Write-Host ("-" * 100) -ForegroundColor $Global:ColorScheme.Border
-
-        foreach ($msg in $displayMessages) {
-            $subject = if ($msg.Subject.Length -gt 48) { $msg.Subject.Substring(0, 45) + "..." } else { $msg.Subject }
-            $sender = if ($msg.SenderEmailAddress.Length -gt 28) { $msg.SenderEmailAddress.Substring(0, 25) + "..." } else { $msg.SenderEmailAddress }
-            Write-Host ($format -f $index, $subject, $sender) -ForegroundColor $Global:ColorScheme.Normal
-            $index++
-        }
-
-        Write-Host ""
-        Write-Host "Enter email number (1-$($displayMessages.Count)) or type 'Q' to quit:" -ForegroundColor $Global:ColorScheme.Info
-        $selection = Read-Host
-
-        if ($selection -match '^(q|quit)$') {
-            return
-        }
-
-        if (-not ($selection -match '^\d+$') -or [int]$selection -lt 1 -or [int]$selection -gt $displayMessages.Count) {
-            Write-Host "Invalid selection." -ForegroundColor $Global:ColorScheme.Error
-            Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
-            return
-        }
-
-        $selectedMessage = $displayMessages[[int]$selection - 1]
-        $messageId = $selectedMessage.Id
-
-        Write-Host ""
-        Write-Host (Get-LocalizedString "header_analyzing") -ForegroundColor $Global:ColorScheme.Info
-
-        # Get headers
-        $message = Get-EmailHeaders -UserId $UserEmail -MessageId $messageId
-
-        if (-not $message) {
-            Write-Host (Get-LocalizedString "header_notFound") -ForegroundColor $Global:ColorScheme.Error
-            Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
-            return
-        }
-
-        # Analyze
-        $analysis = Analyze-EmailHeaders -Message $message
-
-        # Display results
-        Clear-Host
-        Write-Host "`n$title" -ForegroundColor $Global:ColorScheme.Highlight
-        Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
-        Write-Host ""
-
-        # Message info
-        Write-Host "📧 $(Get-LocalizedString 'header_messageInfo')" -ForegroundColor $Global:ColorScheme.SectionHeader
-        Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
-        Write-Host "  Subject: $($message.subject)" -ForegroundColor $Global:ColorScheme.Normal
-        Write-Host "  From: $($message.from.emailAddress.address)" -ForegroundColor $Global:ColorScheme.Normal
-        if ($message.replyTo -and $message.replyTo.Count -gt 0) {
-            Write-Host "  Reply-To: $($message.replyTo[0].emailAddress.address)" -ForegroundColor $Global:ColorScheme.Normal
-        }
-        Write-Host "  Received: $($message.receivedDateTime)" -ForegroundColor $Global:ColorScheme.Normal
-        Write-Host ""
-
-        # Security analysis
-        Write-Host "🔒 $(Get-LocalizedString 'header_securityAnalysis')" -ForegroundColor $Global:ColorScheme.SectionHeader
-        Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
-        Write-Host "  SPF: $($analysis.SPFResult)" -ForegroundColor $(if ($analysis.SPFResult -eq "Pass") { $Global:ColorScheme.Success } elseif ($analysis.SPFResult -eq "Fail") { $Global:ColorScheme.Error } else { $Global:ColorScheme.Warning })
-        Write-Host "  DKIM: $($analysis.DKIMResult)" -ForegroundColor $(if ($analysis.DKIMResult -eq "Pass") { $Global:ColorScheme.Success } elseif ($analysis.DKIMResult -eq "Fail") { $Global:ColorScheme.Error } else { $Global:ColorScheme.Warning })
-        Write-Host "  DMARC: $($analysis.DMARCResult)" -ForegroundColor $(if ($analysis.DMARCResult -eq "Pass") { $Global:ColorScheme.Success } elseif ($analysis.DMARCResult -eq "Fail") { $Global:ColorScheme.Error } else { $Global:ColorScheme.Warning })
-
-        if ($analysis.Security.Count -gt 0) {
-            Write-Host ""
-            foreach ($sec in $analysis.Security) {
-                Write-Host "  $sec" -ForegroundColor $Global:ColorScheme.Success
+            $displayItems += [PSCustomObject]@{
+                DisplayText = "$subject | From: $sender"
+                Message = $msg
             }
         }
-        Write-Host ""
 
-        # Warnings
-        if ($analysis.Warnings.Count -gt 0) {
-            Write-Host "⚠️  $(Get-LocalizedString 'header_warnings')" -ForegroundColor $Global:ColorScheme.SectionHeader
-            Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
-            foreach ($warning in $analysis.Warnings) {
-                Write-Host "  $warning" -ForegroundColor $Global:ColorScheme.Warning
-            }
-            Write-Host ""
-        }
+        # Show selectable list
+        $title = Get-LocalizedString "header_title" -FormatArgs @($UserEmail)
+        $selected = Show-SelectableList -Title "$title - Select Email" -Items $displayItems -DisplayProperty "DisplayText" -PageSize 20
 
-        # Info
-        if ($analysis.Info.Count -gt 0) {
-            Write-Host "ℹ️  $(Get-LocalizedString 'header_info')" -ForegroundColor $Global:ColorScheme.SectionHeader
-            Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
-            foreach ($info in $analysis.Info) {
-                Write-Host "  $info" -ForegroundColor $Global:ColorScheme.Info
-            }
-            Write-Host ""
-        }
-
-        # Routing path
-        if ($analysis.MessagePath.Count -gt 0) {
-            Write-Host "🌐 $(Get-LocalizedString 'header_routingPath')" -ForegroundColor $Global:ColorScheme.SectionHeader
-            Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
-            Write-Host "  $(Get-LocalizedString 'header_hopCount' -FormatArgs @($analysis.MessagePath.Count))" -ForegroundColor $Global:ColorScheme.Info
-
-            $showAll = Read-Host (Get-LocalizedString "header_showAllHops")
-            if ($showAll -match '^(y|yes|j|ja)$') {
-                Write-Host ""
-                $hopNum = 1
-                foreach ($hop in $analysis.MessagePath) {
-                    Write-Host "  Hop $hopNum :" -ForegroundColor $Global:ColorScheme.Label
-                    Write-Host "    $($hop.Substring(0, [Math]::Min(95, $hop.Length)))" -ForegroundColor $Global:ColorScheme.Muted
-                    if ($hop.Length -gt 95) {
-                        Write-Host "    ..." -ForegroundColor $Global:ColorScheme.Muted
-                    }
-                    $hopNum++
+        if ($selected) {
+            # Find index of selected message
+            $selectedIndex = 0
+            for ($i = 0; $i -lt $displayItems.Count; $i++) {
+                if ($displayItems[$i].Message.Id -eq $selected.Message.Id) {
+                    $selectedIndex = $i
+                    break
                 }
             }
+
+            # Show header analysis with navigation
+            Show-HeaderAnalysisView -UserEmail $UserEmail -AllMessages $displayItems -CurrentIndex $selectedIndex
         }
-
-        Write-Host ""
-
-        # Export option
-        $export = Read-Host (Get-LocalizedString "header_exportHeaders")
-        if ($export -match '^(y|yes|j|ja)$') {
-            Export-HeaderAnalysis -Message $message -Analysis $analysis
-        }
-
-        Write-Host ""
-        Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
     }
     catch {
         Write-Error "Error in header analyzer: $($_.Exception.Message)"
+        Write-Host "`n$(Get-LocalizedString 'script_errorOccurred' -FormatArgs @($_.Exception.Message))" -ForegroundColor $Global:ColorScheme.Error
+        Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
+    }
+}
+
+# Function: Show-HeaderAnalysisView
+function Show-HeaderAnalysisView {
+    <#
+    .SYNOPSIS
+        Shows header analysis with prev/next navigation
+    .PARAMETER UserEmail
+        User email address
+    .PARAMETER AllMessages
+        Array of all messages for navigation
+    .PARAMETER CurrentIndex
+        Current message index in the array
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$UserEmail,
+
+        [Parameter(Mandatory = $true)]
+        [array]$AllMessages,
+
+        [Parameter(Mandatory = $true)]
+        [int]$CurrentIndex
+    )
+
+    try {
+        $actionLoopActive = $true
+        while ($actionLoopActive) {
+            $currentItem = $AllMessages[$CurrentIndex]
+            $messageId = $currentItem.Message.Id
+
+            Clear-Host
+
+            $title = Get-LocalizedString "header_title" -FormatArgs @($UserEmail)
+            Write-Host "`n$title" -ForegroundColor $Global:ColorScheme.Highlight
+
+            # Show navigation info
+            if ($AllMessages.Count -gt 0) {
+                $navInfo = "[$($CurrentIndex + 1) of $($AllMessages.Count)]"
+                if ($CurrentIndex -gt 0) {
+                    $navInfo += " [← Previous]"
+                }
+                if ($CurrentIndex -lt ($AllMessages.Count - 1)) {
+                    $navInfo += " [Next →]"
+                }
+                Write-Host $navInfo -ForegroundColor $Global:ColorScheme.Muted
+            }
+
+            Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
+            Write-Host ""
+
+            Write-Host (Get-LocalizedString "header_analyzing") -ForegroundColor $Global:ColorScheme.Info
+
+            # Get headers
+            $message = Get-EmailHeaders -UserId $UserEmail -MessageId $messageId
+
+            if (-not $message) {
+                Write-Host (Get-LocalizedString "header_notFound") -ForegroundColor $Global:ColorScheme.Error
+                Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
+                return
+            }
+
+            # Analyze
+            $analysis = Analyze-EmailHeaders -Message $message
+
+            # Display results
+            Clear-Host
+            Write-Host "`n$title" -ForegroundColor $Global:ColorScheme.Highlight
+
+            # Show navigation info again
+            if ($AllMessages.Count -gt 0) {
+                $navInfo = "[$($CurrentIndex + 1) of $($AllMessages.Count)]"
+                if ($CurrentIndex -gt 0) {
+                    $navInfo += " [← Previous]"
+                }
+                if ($CurrentIndex -lt ($AllMessages.Count - 1)) {
+                    $navInfo += " [Next →]"
+                }
+                Write-Host $navInfo -ForegroundColor $Global:ColorScheme.Muted
+            }
+
+            Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
+            Write-Host ""
+
+            # Message info
+            Write-Host "📧 $(Get-LocalizedString 'header_messageInfo')" -ForegroundColor $Global:ColorScheme.SectionHeader
+            Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
+            Write-Host "  Subject: $($message.subject)" -ForegroundColor $Global:ColorScheme.Normal
+            Write-Host "  From: $($message.from.emailAddress.address)" -ForegroundColor $Global:ColorScheme.Normal
+            if ($message.replyTo -and $message.replyTo.Count -gt 0) {
+                Write-Host "  Reply-To: $($message.replyTo[0].emailAddress.address)" -ForegroundColor $Global:ColorScheme.Normal
+            }
+            Write-Host "  Received: $($message.receivedDateTime)" -ForegroundColor $Global:ColorScheme.Normal
+            Write-Host ""
+
+            # Security analysis
+            Write-Host "🔒 $(Get-LocalizedString 'header_securityAnalysis')" -ForegroundColor $Global:ColorScheme.SectionHeader
+            Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
+            Write-Host "  SPF: $($analysis.SPFResult)" -ForegroundColor $(if ($analysis.SPFResult -eq "Pass") { $Global:ColorScheme.Success } elseif ($analysis.SPFResult -eq "Fail") { $Global:ColorScheme.Error } else { $Global:ColorScheme.Warning })
+            Write-Host "  DKIM: $($analysis.DKIMResult)" -ForegroundColor $(if ($analysis.DKIMResult -eq "Pass") { $Global:ColorScheme.Success } elseif ($analysis.DKIMResult -eq "Fail") { $Global:ColorScheme.Error } else { $Global:ColorScheme.Warning })
+            Write-Host "  DMARC: $($analysis.DMARCResult)" -ForegroundColor $(if ($analysis.DMARCResult -eq "Pass") { $Global:ColorScheme.Success } elseif ($analysis.DMARCResult -eq "Fail") { $Global:ColorScheme.Error } else { $Global:ColorScheme.Warning })
+
+            if ($analysis.Security.Count -gt 0) {
+                Write-Host ""
+                foreach ($sec in $analysis.Security) {
+                    Write-Host "  $sec" -ForegroundColor $Global:ColorScheme.Success
+                }
+            }
+            Write-Host ""
+
+            # Warnings
+            if ($analysis.Warnings.Count -gt 0) {
+                Write-Host "⚠️  $(Get-LocalizedString 'header_warnings')" -ForegroundColor $Global:ColorScheme.SectionHeader
+                Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
+                foreach ($warning in $analysis.Warnings) {
+                    Write-Host "  $warning" -ForegroundColor $Global:ColorScheme.Warning
+                }
+                Write-Host ""
+            }
+
+            # Info
+            if ($analysis.Info.Count -gt 0) {
+                Write-Host "ℹ️  $(Get-LocalizedString 'header_info')" -ForegroundColor $Global:ColorScheme.SectionHeader
+                Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
+                foreach ($info in $analysis.Info) {
+                    Write-Host "  $info" -ForegroundColor $Global:ColorScheme.Info
+                }
+                Write-Host ""
+            }
+
+            # Routing path summary
+            if ($analysis.MessagePath.Count -gt 0) {
+                Write-Host "🌐 $(Get-LocalizedString 'header_routingPath')" -ForegroundColor $Global:ColorScheme.SectionHeader
+                Write-Host ("─" * 100) -ForegroundColor $Global:ColorScheme.Border
+                Write-Host "  $(Get-LocalizedString 'header_hopCount' -FormatArgs @($analysis.MessagePath.Count))" -ForegroundColor $Global:ColorScheme.Info
+                Write-Host ""
+            }
+
+            # Show available actions
+            Write-Host "Available Actions:" -ForegroundColor $Global:ColorScheme.SectionHeader
+            Write-Host "  [R] Show Routing Details" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "  [E] Export Analysis" -ForegroundColor $Global:ColorScheme.Info
+            Write-Host "  [Q/Esc] Back" -ForegroundColor $Global:ColorScheme.Muted
+            Write-Host ""
+
+            # Read key
+            $readKeyOptions = [System.Management.Automation.Host.ReadKeyOptions]::NoEcho -bor [System.Management.Automation.Host.ReadKeyOptions]::IncludeKeyDown
+            $keyInfo = $Host.UI.RawUI.ReadKey($readKeyOptions)
+
+            switch ($keyInfo.VirtualKeyCode) {
+                37 { # Left Arrow - Previous email
+                    if ($CurrentIndex -gt 0) {
+                        $CurrentIndex--
+                    }
+                }
+                39 { # Right Arrow - Next email
+                    if ($CurrentIndex -lt ($AllMessages.Count - 1)) {
+                        $CurrentIndex++
+                    }
+                }
+                27 { # Escape
+                    $actionLoopActive = $false
+                }
+                default {
+                    $charPressed = $keyInfo.Character.ToString().ToUpper()
+                    if ($charPressed -eq 'Q') {
+                        $actionLoopActive = $false
+                    } elseif ($charPressed -eq 'R') {
+                        # Show routing details
+                        if ($analysis.MessagePath.Count -gt 0) {
+                            Clear-Host
+                            Write-Host "`n🌐 Routing Path Details" -ForegroundColor $Global:ColorScheme.SectionHeader
+                            Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
+                            Write-Host ""
+                            $hopNum = 1
+                            foreach ($hop in $analysis.MessagePath) {
+                                Write-Host "Hop $hopNum :" -ForegroundColor $Global:ColorScheme.Label
+                                Write-Host "  $hop" -ForegroundColor $Global:ColorScheme.Muted
+                                Write-Host ""
+                                $hopNum++
+                            }
+                            Write-Host ("=" * 100) -ForegroundColor $Global:ColorScheme.Border
+                            Write-Host ""
+                            Read-Host "Press Enter to continue"
+                        }
+                    } elseif ($charPressed -eq 'E') {
+                        # Export analysis
+                        Export-HeaderAnalysis -Message $message -Analysis $analysis
+                        Read-Host "Press Enter to continue"
+                    }
+                }
+            }
+        }
+    }
+    catch {
+        Write-Error "Error showing header analysis: $($_.Exception.Message)"
         Write-Host "`n$(Get-LocalizedString 'script_errorOccurred' -FormatArgs @($_.Exception.Message))" -ForegroundColor $Global:ColorScheme.Error
         Read-Host (Get-LocalizedString "mainMenu_actionPressEnterToContinue")
     }
@@ -454,4 +550,4 @@ $($Message.internetMessageHeaders | ForEach-Object { "$($_.name): $($_.value)" }
 }
 
 # Export functions
-Export-ModuleMember -Function Show-HeaderAnalyzer, Analyze-EmailHeaders, Get-EmailHeaders
+Export-ModuleMember -Function Show-HeaderAnalyzer, Show-HeaderAnalysisView, Analyze-EmailHeaders, Get-EmailHeaders
