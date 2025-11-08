@@ -58,13 +58,23 @@ $ModulesPath = Join-Path $PSScriptRoot "Modules"
 
 # Import all modules
 try {
+    # Core utilities first
     Import-Module (Join-Path $ModulesPath "Utilities\Localization.psm1") -Force
     Import-Module (Join-Path $ModulesPath "Utilities\Helpers.psm1") -Force
+
+    # Configuration and Logging (must be loaded before other modules that use them)
+    Import-Module (Join-Path $ModulesPath "Core\ConfigManager.psm1") -Force
+    Import-Module (Join-Path $ModulesPath "Utilities\Logger.psm1") -Force
+
+    # UI modules
     Import-Module (Join-Path $ModulesPath "UI\ColorScheme.psm1") -Force
     Import-Module (Join-Path $ModulesPath "UI\Display.psm1") -Force
     Import-Module (Join-Path $ModulesPath "UI\MenuSystem.psm1") -Force
     Import-Module (Join-Path $ModulesPath "UI\EmailListView.psm1") -Force
     Import-Module (Join-Path $ModulesPath "UI\EmailViewer.psm1") -Force
+    Import-Module (Join-Path $ModulesPath "UI\SettingsMenu.psm1") -Force
+
+    # Core services
     Import-Module (Join-Path $ModulesPath "Core\GraphApiService.psm1") -Force
     Import-Module (Join-Path $ModulesPath "Core\CacheManager.psm1") -Force
     Import-Module (Join-Path $ModulesPath "EmailOperations\EmailActions.psm1") -Force
@@ -86,6 +96,12 @@ try {
     Import-Module (Join-Path $ModulesPath "Security\ThreatDetector.psm1") -Force
     Import-Module (Join-Path $ModulesPath "Integration\CalendarSync.psm1") -Force
 
+    # New advanced features (v3.2)
+    Import-Module (Join-Path $ModulesPath "EmailOperations\BulkOperationsManager.psm1") -Force
+    Import-Module (Join-Path $ModulesPath "EmailOperations\FilterEngine.psm1") -Force
+    Import-Module (Join-Path $ModulesPath "Utilities\FuzzySearchEngine.psm1") -Force
+    Import-Module (Join-Path $ModulesPath "Automation\RuleEngine.psm1") -Force
+
     Write-Host "Modules loaded successfully!" -ForegroundColor Green
 } catch {
     Write-Error "Failed to load modules: $($_.Exception.Message)"
@@ -95,6 +111,18 @@ try {
 #endregion
 
 #region Initialization
+# Initialize configuration system
+Initialize-Configuration | Out-Null
+
+# Initialize logging system
+$logDir = Join-Path (Split-Path $PSScriptRoot -Parent) "logs"
+if (-not (Test-Path $logDir)) {
+    New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+}
+$logLevel = Get-ConfigValue -Path "Logging.LogLevel" -DefaultValue "Info"
+$enableConsole = Get-ConfigValue -Path "Logging.EnableConsoleOutput" -DefaultValue $false
+Initialize-Logger -LogDirectory $logDir -LogLevel $logLevel -EnableConsoleOutput:$enableConsole
+
 # Initialize localization
 Initialize-Localization -SelectedLang $Language -FilePath (Join-Path $PSScriptRoot "localizations.json")
 
@@ -105,7 +133,7 @@ Set-ConsoleSize -Width 150 -Height 55
 Set-DefaultColors
 
 Write-Host ""
-Write-Host "=== MailCleanBuddy v3.0 (Complete Feature Suite) ===" -ForegroundColor Green
+Write-Host "=== MailCleanBuddy v3.2 (Enterprise Platform) ===" -ForegroundColor Green
 Write-Host "Mailbox: $MailboxEmail" -ForegroundColor Cyan
 Write-Host ""
 #endregion
@@ -183,6 +211,7 @@ function Show-MainMenuOptions {
     Write-Host "  A. $(Get-LocalizedString 'mainMenu_newOption1')" -ForegroundColor Magenta
     Write-Host "  B. $(Get-LocalizedString 'mainMenu_newOption2')" -ForegroundColor Cyan
     Write-Host ""
+    Write-Host "  S. ⚙️  Settings & Configuration" -ForegroundColor Cyan
     Write-Host "  $(Get-LocalizedString 'mainMenu_optionR')" -ForegroundColor Yellow
     Write-Host "  $(Get-LocalizedString 'mainMenu_optionQ')" -ForegroundColor Red
     Write-Host ""
@@ -263,7 +292,7 @@ function Show-SmartFeaturesMenu {
             "14" {
                 Show-AttachmentStats -UserEmail $UserEmail
             }
-            "B" {
+            "Q" {
                 $continue = $false
             }
             default {
@@ -302,7 +331,7 @@ function Show-BulkOperationsMenu {
             "3" {
                 Invoke-MoveToSubfolder -UserEmail $UserEmail
             }
-            "B" {
+            "Q" {
                 $continue = $false
             }
             default {
@@ -638,6 +667,10 @@ try {
             "B" {
                 # Advanced menu: Bulk Operations
                 Show-BulkOperationsMenu -UserEmail $MailboxEmail
+            }
+            "S" {
+                # Settings menu
+                Show-SettingsMenu -UserEmail $MailboxEmail
             }
             "R" {
                 Write-Host (Get-LocalizedString "mainMenu_actionStartingFullIndex") -ForegroundColor Cyan
