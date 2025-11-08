@@ -127,9 +127,11 @@ function Format-SafeDateTime {
         $Format = "yyyy-MM-dd HH:mm"
     }
 
-    $dateTime = ConvertTo-SafeDateTime -DateTimeValue $DateTimeValue -DefaultValue $null
+    # Use default MinValue if not specified (typed parameter can't accept $null)
+    $dateTime = ConvertTo-SafeDateTime -DateTimeValue $DateTimeValue
 
-    if ($null -eq $dateTime) {
+    # Check for null or MinValue (indicates no valid date)
+    if ($null -eq $dateTime -or $dateTime -eq [DateTime]::MinValue) {
         return "N/A"
     }
 
